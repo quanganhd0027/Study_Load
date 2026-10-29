@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StudyLoad — Quản lý học tập thông minh</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="authRoot"></div>
+<div class="app hidden">
+<aside class="sidebar">
+<div class="logo">Study<span>Load</span></div>
+<nav class="nav" id="nav">
+<button data-page="dashboard" class="active">◫ Tổng quan</button>
+<button data-page="tasks">☷ Nhiệm vụ</button>
+<button data-page="calendar">▦ Lịch cá nhân</button>
+<button data-page="classes">♧ Lớp học & dự án</button>
+<button data-page="library">▤ Thư viện</button>
+<button data-page="reports">◷ Báo cáo</button>
+<button data-page="notifications">♧ Thông báo</button>
+<button data-page="settings">⚙ Cài đặt & dữ liệu</button>
+</nav>
+<div class="side-note">Bản demo chạy cục bộ trên trình duyệt. Phân quyền mô phỏng ở giao diện, không thay thế bảo mật máy chủ.</div>
+</aside>
+<main class="main">
+<header class="topbar"><div><h1 id="pageTitle">Tổng quan</h1><p id="subtitle">Lập lịch hợp lý, theo dõi tiến độ và thời gian học.</p></div><div class="top-actions"><button id="profileButton" class="secondary profile-button" title="Tài khoản" aria-label="Tài khoản">👤</button><select id="userSelect" aria-label="Tài khoản hiện tại"></select><button id="quickAdd">+ Nhiệm vụ</button></div></header>
+<div class="content" id="content"></div>
+</main>
+</div>
+<div id="modalRoot"></div><div id="toastRoot"></div>
+<script src="app.js" defer></script>
+</body></html>
