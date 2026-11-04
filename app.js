@@ -110,8 +110,8 @@ async function loadStudyLoadDomain(sb, profile, authUser, restored){
   safe(sb.from('projects').select('id,name,description,class_id,created_by,deadline,status,team_id').order('created_at',{ascending:false}),'projects'),
   safe(sb.from('class_teams').select('id,class_id,name,description,created_by,is_active').eq('is_active',true),'class teams'),
   safe(sb.from('class_officer_roles').select('id,class_id,team_id,user_id,role,ended_at').eq('role','team_leader').is('ended_at',null),'team leaders'),
-  safe(sb.from('project_evidence').select('id,project_id,group_id,title,description,external_url,submitted_by,contributors,status,created_at,reviewed_by,reviewed_at'),'project evidence'),
-  safe(sb.from('project_resources').select('id,project_id,group_id,name,description,external_url,owner_id,created_at'),'project resources'),
+  safe(sb.from('project_evidence').select('id,project_id,group_id,title,description,external_url,file_path,submitted_by,contributors,status,created_at,reviewed_by,reviewed_at'),'project evidence'),
+  safe(sb.from('project_resources').select('id,project_id,group_id,name,description,external_url,file_path,owner_id,created_at'),'project resources'),
   safe(sb.from('duty_schedules').select('id,class_id,team_id,student_id,duty_date,duty_type,status,note,approved_by,completed_at,created_by,created_at').order('duty_date',{ascending:false}),'duty schedules'),
   safe(sb.from('duty_evidence').select('id,duty_schedule_id,submitted_by,file_path,note,created_at').order('created_at',{ascending:false}),'duty evidence'),
   safe(sb.from('officer_tasks').select('id,class_id,team_id,title,description,category,assigned_by,assigned_to,status,priority,due_at,completed_at,created_at').order('created_at',{ascending:false}),'officer tasks'),
@@ -166,8 +166,8 @@ async function loadStudyLoadDomain(sb, profile, authUser, restored){
   const teacherIds=[...new Set([p.created_by,...(classRows.find(c=>c.id===p.class_id)?.homeroomTeacherIds||[])])];
   for(const id of [...memberIds,...teacherIds])if(!users.has(id))users.set(id,{id,name:'Thành viên',role:'student',classIds:[]});
   const groups=teamRows.filter(g=>g.class_id===p.class_id&&(g.description==='Nhóm thuộc dự án '+p.name||g.description==='Nhóm dự án '+p.name)).map(g=>{const leader=officerRows.find(o=>o.team_id===g.id);return {id:g.id,name:g.name,memberIds:g.members.map(m=>m.student_id),leaderId:leader?.user_id||g.members.find(m=>m.is_team_leader)?.student_id||null,leaderRoleId:leader?.id||null,remote:true}});
-  const evidence=dbEvidence.filter(e=>e.project_id===p.id).map(e=>({id:e.id,groupId:e.group_id,title:e.title,text:e.description,url:e.external_url,submittedBy:e.submitted_by,contributors:e.contributors||[],status:e.status==='approved'?'Đã xác nhận':e.status==='needs_revision'?'Cần sửa':'Chờ xác minh',createdAt:e.created_at,reviewedBy:e.reviewed_by,reviewedAt:e.reviewed_at,remote:true}));
-  const resources=dbResources.filter(r=>r.project_id===p.id).map(r=>({id:r.id,groupId:r.group_id,name:r.name,description:r.description,url:r.external_url,ownerId:r.owner_id,createdAt:r.created_at,remote:true}));
+  const evidence=dbEvidence.filter(e=>e.project_id===p.id).map(e=>({id:e.id,groupId:e.group_id,title:e.title,text:e.description,url:e.external_url,filePath:e.file_path,submittedBy:e.submitted_by,contributors:e.contributors||[],status:e.status==='approved'?'Đã xác nhận':e.status==='needs_revision'?'Cần sửa':'Chờ xác minh',createdAt:e.created_at,reviewedBy:e.reviewed_by,reviewedAt:e.reviewed_at,remote:true}));
+  const resources=dbResources.filter(r=>r.project_id===p.id).map(r=>({id:r.id,groupId:r.group_id,name:r.name,description:r.description,url:r.external_url,filePath:r.file_path,ownerId:r.owner_id,createdAt:r.created_at,remote:true}));
   return {id:p.id,name:p.name,description:p.description,classId:p.class_id,teacherIds,memberIds,groups,tasks:pTasks.map(t=>({id:t.id,title:t.title,description:t.description,assigneeId:t.assigned_to,estimatedMinutes:t.estimated_minutes,dueAt:t.deadline,status:(t.status==='completed'||t.status==='done')?'Hoàn thành':t.status==='in_progress'?'Đang làm':'Chưa làm',contributors:t.completed_by?[t.completed_by]:[],assignmentHistory:[],createdBy:p.created_by})),resources,evidence,source:'supabase',history:[],deadline:p.deadline,status:p.status};
  });
  const userList=[...users.values()];
@@ -594,24 +594,12 @@ function projectTaskForm(p,g){
  };
 }
 function evidenceForm(p,g){
- modal('Nộp minh chứng','<form id="evForm"><label>Tiêu đề *</label><input name="title" required><label>Văn bản / mô tả</label><textarea name="text" rows="3"></textarea><label>Liên kết (nếu có)</label><input type="url" name="url" placeholder="https://…"><label>Đóng góp của thành viên</label>'+g.memberIds.map(id=>'<label class="checkrow"><input type="checkbox" name="contributors" value="'+esc(id)+'" '+(id===current().id?'checked':'')+'>'+esc(state.users.find(u=>u.id===id)?.name||'')+'</label>').join('')+'</form>');
- $('#modalSubmit').onclick=async()=>{
-  const f=$('#evForm');if(!f.reportValidity())return;
-  const d=new FormData(f);
-  const {error}=await window.studyloadSupabase.from('project_evidence').insert({project_id:p.id,group_id:g.id,title:d.get('title'),description:d.get('text')||null,external_url:d.get('url')||null,submitted_by:current().id,contributors:d.getAll('contributors'),status:'pending'});
-  if(error){toast('Không nộp được minh chứng: '+error.message);return}
-  closeModal();await reloadStudyLoadDomain();render();projectDetail(p.id);p.memberIds.filter(id=>id!==current().id).forEach(id=>notifyUser(id,'Minh chứng nhóm mới',d.get('title'),'project'));p.teacherIds.forEach(id=>notifyUser(id,'Minh chứng chờ xác minh',d.get('title'),'project'));
- };
+ modal('Nộp minh chứng','<form id="evForm"><label>Tiêu đề *</label><input name="title" required><label>Văn bản / mô tả</label><textarea name="text" rows="3"></textarea><label>Liên kết ngoài</label><input type="url" name="url"><label>Tệp minh chứng (tối đa 10 MB)</label><input type="file" name="file" accept="image/*,.pdf,.doc,.docx,.txt"><label>Đóng góp của thành viên</label>'+g.memberIds.map(id=>'<label class="checkrow"><input type="checkbox" name="contributors" value="'+esc(id)+'" '+(id===current().id?'checked':'')+'>'+esc(state.users.find(u=>u.id===id)?.name||'')+'</label>').join('')+'</form>');
+ $('#modalSubmit').onclick=async()=>{const f=$('#evForm');if(!f.reportValidity())return;const d=new FormData(f),file=f.elements.file.files[0];let path=null;if(file){if(file.size>10*1024*1024){toast('Tệp vượt quá 10 MB.');return}path=current().id+'/'+p.id+'/'+Date.now()+'_'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');const up=await window.studyloadSupabase.storage.from('project-files').upload(path,file);if(up.error){toast('Tải tệp thất bại: '+up.error.message);return}}const {error}=await window.studyloadSupabase.from('project_evidence').insert({project_id:p.id,group_id:g.id,title:d.get('title'),description:d.get('text')||null,external_url:d.get('url')||null,file_path:path,submitted_by:current().id,contributors:d.getAll('contributors'),status:'pending'});if(error){if(path)await window.studyloadSupabase.storage.from('project-files').remove([path]);toast('Không nộp được minh chứng: '+error.message);return}closeModal();await reloadStudyLoadDomain();render();projectDetail(p.id);p.memberIds.filter(id=>id!==current().id).forEach(id=>notifyUser(id,'Minh chứng nhóm mới',d.get('title'),'project'));p.teacherIds.forEach(id=>notifyUser(id,'Minh chứng chờ xác minh',d.get('title'),'project'))};
 }
 function resourceForm(p,g){
- modal('Thêm tài liệu dự án','<form id="resForm"><label>Tên tài liệu *</label><input name="name" required><label>Mô tả</label><textarea name="description" rows="2"></textarea><label>Liên kết</label><input type="url" name="url"></form>');
- $('#modalSubmit').onclick=async()=>{
-  const f=$('#resForm');if(!f.reportValidity())return;
-  const d=new FormData(f);
-  const {error}=await window.studyloadSupabase.from('project_resources').insert({project_id:p.id,group_id:g?.id||null,name:d.get('name'),description:d.get('description')||null,external_url:d.get('url')||null,owner_id:current().id});
-  if(error){toast('Không thêm được tài liệu: '+error.message);return}
-  closeModal();await reloadStudyLoadDomain();render();projectDetail(p.id);toast('Đã lưu tài liệu dự án.');
- };
+ modal('Thêm tài liệu dự án','<form id="resForm"><label>Tên tài liệu *</label><input name="name" required><label>Mô tả</label><textarea name="description" rows="2"></textarea><label>Liên kết ngoài</label><input type="url" name="url"><label>Tệp (tối đa 10 MB)</label><input type="file" name="file" accept="image/*,.pdf,.doc,.docx,.txt"></form>');
+ $('#modalSubmit').onclick=async()=>{const f=$('#resForm');if(!f.reportValidity())return;const d=new FormData(f),file=f.elements.file.files[0];let path=null;if(file){if(file.size>10*1024*1024){toast('Tệp vượt quá 10 MB.');return}path=current().id+'/'+p.id+'/'+Date.now()+'_'+file.name.replace(/[^a-zA-Z0-9._-]/g,'_');const up=await window.studyloadSupabase.storage.from('project-files').upload(path,file);if(up.error){toast(up.error.message);return}}const {error}=await window.studyloadSupabase.from('project_resources').insert({project_id:p.id,group_id:g?.id||null,name:d.get('name'),description:d.get('description')||null,external_url:d.get('url')||null,file_path:path,owner_id:current().id});if(error){if(path)await window.studyloadSupabase.storage.from('project-files').remove([path]);toast('Không thêm được tài liệu: '+error.message);return}closeModal();await reloadStudyLoadDomain();render();projectDetail(p.id)};
 }
 function addFile(existing){
  modal(existing?'Sửa tài liệu':'Thêm tài liệu','<form id="fileForm"><label>Tên tài liệu *</label><input name="name" required maxlength="160" value="'+esc(existing?.name||'')+'"><label>Mô tả</label><textarea name="description" rows="2">'+esc(existing?.description||'')+'</textarea><label>Liên kết ngoài</label><input name="url" type="url" value="'+esc(existing?.url||'')+'"><label>Tải tệp riêng tư (tối đa 5 MB)</label><input name="file" type="file" accept="image/*,.pdf,.doc,.docx,.txt"><label>Chia sẻ với</label>'+state.users.filter(x=>x.id!==current().id&&x.role==='student').map(x=>'<label class="checkrow"><input type="checkbox" name="shared" value="'+x.id+'" '+((existing?.sharedWith||[]).includes(x.id)?'checked':'')+'>'+esc(x.name)+'</label>').join('')+'</form>');
@@ -644,12 +632,13 @@ async function evidenceStatus(pid,eid,status){
  if(error){toast('Không cập nhật được minh chứng: '+error.message);return}
  await reloadStudyLoadDomain();render();projectDetail(pid);
 }
-async function deleteEvidence(pid,eid){
+async async function deleteEvidence(pid,eid){
  const p=state.projects.find(x=>x.id===pid),e=p?.evidence.find(x=>x.id===eid),g=p?.groups.find(g=>g.id===e?.groupId);
  if(!g||!(g.leaderId===current().id||!g.leaderId&&g.memberIds.includes(current().id))){toast('Không có quyền xóa minh chứng này.');return}
  if(!confirm('Xóa minh chứng khỏi dự án?'))return;
  const {error}=await window.studyloadSupabase.from('project_evidence').delete().eq('id',eid);
  if(error){toast('Không xóa được minh chứng: '+error.message);return}
+ if(e.filePath){const z=await window.studyloadSupabase.storage.from('project-files').remove([e.filePath]);if(z.error)console.warn(z.error.message)}
  await reloadStudyLoadDomain();render();projectDetail(pid);
 }
 async function deleteResource(pid,rid){
@@ -658,6 +647,7 @@ async function deleteResource(pid,rid){
  if(!confirm('Xóa tài liệu dự án?'))return;
  const {error}=await window.studyloadSupabase.from('project_resources').delete().eq('id',rid);
  if(error){toast('Không xóa được tài liệu: '+error.message);return}
+ if(r.filePath){const z=await window.studyloadSupabase.storage.from('project-files').remove([r.filePath]);if(z.error)console.warn(z.error.message)}
  await reloadStudyLoadDomain();render();projectDetail(pid);
 }
 $('#nav').addEventListener('click',e=>{let b=e.target.closest('[data-page]');if(b){page=b.dataset.page;render()}});
