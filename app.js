@@ -51,11 +51,8 @@ function current(){return state.users.find(u=>u.id===state.currentUserId)||state
 function isStudent(u=current()){return u.role==='student'}
 function isTeacher(u=current()){return u.role==='teacher'||u.role==='admin'}
 function isAdmin(u=current()){return u.role==='admin'}
-const ACCOUNTS_KEY='studyload_accounts_v1', SESSION_KEY='studyload_session_v1', REQUESTS_KEY='studyload_teacher_requests_v1';
 const readJson=(key,fallback)=>{try{const v=JSON.parse(localStorage.getItem(key));return v??fallback}catch{return fallback}};
 const writeJson=(key,value)=>localStorage.setItem(key,JSON.stringify(value));
-const normalizeName=s=>String(s||'').trim().toLocaleLowerCase('vi');
-async function hashPassword(p){if(!window.crypto?.subtle)return 'demo-'+btoa(unescape(encodeURIComponent(String(p))));const data=new TextEncoder().encode(String(p));const digest=await window.crypto.subtle.digest('SHA-256',data);return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('')}
 function showAuth(mode='login',message=''){
  document.querySelector('.app').classList.add('hidden');
  const root=$('#authRoot');root.classList.remove('hidden');
