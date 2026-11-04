@@ -48,6 +48,11 @@ test('private file workflows use private Supabase Storage buckets', () => {
   }
 });
 
+test('admin profile editing preserves the selected theme', () => {
+  assert.match(app, /name="theme"><option value="system" .*u\.theme==='system'/);
+  assert.match(app, /admin_update_user_profile/);
+});
+
 test('project and admin workflows are present', () => {
   for (const marker of [
     'function renderClassTools()',
