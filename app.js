@@ -82,6 +82,65 @@ async function loginAccount(e){
  if(error){showAuth('login','Lỗi: '+(error.message==='Invalid login credentials'?'Email hoặc mật khẩu không đúng.':error.message));return}
  await openAppForAccount(data.user);
 }
+
+async function loadStudyLoadDomain(sb, profile, authUser, restored){
+ const uid=authUser.id, isAdminUser=profile.role==='admin', users=new Map();
+ const me={id:uid,name:profile.display_name||profile.username||authUser.email,role:profile.role||'student',subject:'',classIds:[],studentCode:profile.student_id||'',className:profile.class_name||'',email:authUser.email,username:profile.username};
+ users.set(uid,me);
+ const safe=async(q,label)=>{const {data,error}=await q;if(error){console.warn('StudyLoad domain read '+label+':',error.message);return []}return data||[]};
+ const [dbClasses,subjects,dbAssignments,progressRows,homeTeachers,subjectTeachers,dbProjects]=await Promise.all([
+  safe(sb.from('classes').select('id,name,academic_year,description').order('name'),'classes'),
+  safe(sb.from('subjects').select('id,name,description').order('name'),'subjects'),
+  safe(sb.from('assignments').select('id,title,description,subject_id,class_id,teacher_id,estimated_minutes,deadline,scheduled_date,priority,created_at,created_by,source').order('deadline'),'assignments'),
+  safe(sb.from('assignment_progress').select('id,assignment_id,student_id,status,actual_minutes,started_at,completed_at,updated_at'),'assignment_progress'),
+  safe(sb.from('class_homeroom_teachers').select('class_id,teacher_id').is('ended_at',null),'homeroom teachers'),
+  safe(sb.from('class_subject_teachers').select('class_id,subject_id,teacher_id'),'subject teachers'),
+  safe(sb.from('projects').select('id,name,description,class_id,created_by,deadline,status,team_id').order('created_at',{ascending:false}),'projects')
+ ]);
+ const subjectById=new Map(subjects.map(x=>[x.id,x.name]));
+ let classRows=[];
+ for(const c of dbClasses){
+  const [roster,teachers]=await Promise.all([
+   safe(sb.rpc('get_class_roster',{target_class_id:c.id}),'class roster'),
+   Promise.resolve(null)
+  ]);
+  const teacherIds=[...new Set([...homeTeachers.filter(x=>x.class_id===c.id).map(x=>x.teacher_id),...subjectTeachers.filter(x=>x.class_id===c.id).map(x=>x.teacher_id)])];
+  for(const r of roster){if(!users.has(r.user_id))users.set(r.user_id,{id:r.user_id,name:r.display_name||r.username||'Học sinh',role:'student',classIds:[]});}
+  for(const tid of teacherIds){if(!users.has(tid))users.set(tid,{id:tid,name:'Giáo viên',role:'teacher',classIds:[]});}
+  const studentIds=roster.map(x=>x.user_id);
+  classRows.push({id:c.id,name:c.name,academicYear:c.academic_year,description:c.description,teacherIds,studentIds,source:'supabase'});
+  for(const id of [...teacherIds,...studentIds]){const u=users.get(id);if(u&&!u.classIds.includes(c.id))u.classIds.push(c.id)}
+ }
+ if(isAdminUser){
+  const all=await safe(sb.rpc('admin_list_users',{search_text:null,page_size:500,page_offset:0}),'admin users');
+  for(const x of all){const u=users.get(x.user_id)||{id:x.user_id,classIds:[]};Object.assign(u,{name:x.display_name||x.username||x.email||'Người dùng',role:x.role||'student',email:x.email,username:x.username});users.set(x.user_id,u)}
+ }
+ const assignmentById=new Map(dbAssignments.map(x=>[x.id,x]));
+ const sessionsByProgress=new Map();
+ if(me.role==='student'){
+  const sessions=await safe(sb.from('study_sessions').select('id,progress_id,started_at,ended_at,duration_minutes,created_at').eq('student_id',uid).order('started_at'),'study sessions');
+  for(const x of sessions){const a=sessionsByProgress.get(x.progress_id)||[];a.push({id:x.id,startAt:x.started_at,endAt:x.ended_at,minutes:Number(x.duration_minutes)||0,completed:!!x.ended_at,planned:false,remote:true});sessionsByProgress.set(x.progress_id,a)}
+ }
+ const domainTasks=progressRows.map(p=>{
+  const a=assignmentById.get(p.assignment_id);if(!a)return null;
+  return {id:'remote_'+p.id,remoteProgressId:p.id,remoteAssignmentId:a.id,ownerId:p.student_id,title:a.title,subject:subjectById.get(a.subject_id)||'Chưa phân môn',kind:'Bài tập lớp',estimatedMinutes:a.estimated_minutes,actualMinutes:p.actual_minutes||0,remainingWorkMinutes:Math.max(0,(a.estimated_minutes||0)-(p.actual_minutes||0)),dueAt:a.deadline,priority:a.priority==='high'?3:a.priority==='low'?1:2,status:p.status==='completed'?'done':p.status==='in_progress'?'doing':'todo',sessions:sessionsByProgress.get(p.id)||[],history:[],teacherId:a.teacher_id,classId:a.class_id,source:'supabase',createdAt:a.created_at,scheduledDate:a.scheduled_date};
+ }).filter(Boolean);
+ const localTasks=(restored.tasks||[]).filter(t=>t.source!=='supabase'&&!t.remoteProgressId&&t.ownerId===uid);
+ const projectMembers=await safe(sb.from('project_members').select('project_id,user_id,member_role'),'project members');
+ const projectTasks=await safe(sb.from('project_tasks').select('id,project_id,title,description,assigned_to,estimated_minutes,status,completed_by,completed_at,deadline,created_at').order('created_at'),'project tasks');
+ const projectRows=dbProjects.filter(p=>p.class_id||p.created_by===uid||p.team_id);
+ const mappedProjects=projectRows.map(p=>{
+  const members=projectMembers.filter(m=>m.project_id===p.id);
+  const pTasks=projectTasks.filter(t=>t.project_id===p.id);
+  const memberIds=members.map(m=>m.user_id);
+  const teacherIds=[p.created_by];
+  for(const id of [...memberIds,...teacherIds])if(!users.has(id))users.set(id,{id,name:'Thành viên',role:'student',classIds:[]});
+  return {id:p.id,name:p.name,description:p.description,classId:p.class_id,teacherIds,memberIds,groups:[],tasks:pTasks.map(t=>({id:t.id,title:t.title,description:t.description,assigneeId:t.assigned_to,estimatedMinutes:t.estimated_minutes,dueAt:t.deadline,status:t.status==='done'?'Hoàn thành':t.status==='in_progress'?'Đang làm':'Chưa làm',contributors:t.completed_by?[t.completed_by]:[],assignmentHistory:[],createdBy:p.created_by})),resources:[],evidence:[],source:'supabase',history:[],deadline:p.deadline,status:p.status};
+ });
+ const userList=[...users.values()];
+ return {...restored,users:userList,currentUserId:uid,classes:classRows,subjects, tasks:[...localTasks,...domainTasks],projects:mappedProjects,busy:(restored.busy||[]).filter(x=>x.ownerId===uid),notifications:(restored.notifications||[]).filter(x=>x.userId===uid),libraries:restored.libraries&&typeof restored.libraries==='object'?restored.libraries:{}};
+}
+
 async function openAppForAccount(authUser){
  const sb=window.studyloadSupabase,userId=authUser.id;
  window.studyloadSessionUserId=userId;
@@ -92,11 +151,7 @@ async function openAppForAccount(authUser){
  if(stateError){console.error(stateError);showAuth('login','Lỗi: Không thể tải dữ liệu đồng bộ: '+stateError.message);return}
  const appUser={id:userId,name:profile.display_name||authUser.email||profile.username,role:profile.role||'student',subject:'',classIds:[],studentCode:profile.student_id||'',className:profile.class_name||'',email:authUser.email,username:profile.username};
  const restored=stored?.state&&typeof stored.state==='object'?stored.state:emptyState();
- state={...emptyState(),...restored,users:[appUser],currentUserId:userId};
- state.tasks=(state.tasks||[]).filter(t=>t.ownerId===userId);
- state.busy=(state.busy||[]).filter(b=>b.ownerId===userId);
- state.notifications=(state.notifications||[]).filter(n=>n.userId===userId);
- state.libraries=state.libraries&&typeof state.libraries==='object'?state.libraries:{};
+ state=await loadStudyLoadDomain(sb,profile,authUser,{...emptyState(),...restored,users:[appUser],currentUserId:userId});
  window.studyloadSyncError=null;
  localStorage.setItem('studyload_v2_'+userId,JSON.stringify(state));
  $('#authRoot').classList.add('hidden');document.querySelector('.app').classList.remove('hidden');
