@@ -32,7 +32,7 @@ function save(){
  const userId=state.currentUserId;
  if(!userId){localStorage.setItem('studyload_v2_guest',JSON.stringify(state));return}
  const user=current();
- const payload={...state,users:[user],currentUserId:userId,tasks:(state.tasks||[]).filter(t=>!t.remoteProgressId&&t.source!=='supabase')};
+ const payload={...state,users:[user],currentUserId:userId,tasks:(state.tasks||[]).filter(t=>!t.remoteProgressId&&t.source!=='supabase'),classes:[],projects:[],subjects:[]};
  localStorage.setItem('studyload_v2_'+userId,JSON.stringify(payload));
  if(!window.studyloadSupabase||window.studyloadSessionUserId!==userId)return;
  const revision=++remoteSaveRevision;
@@ -100,7 +100,7 @@ async function loadStudyLoadDomain(sb, profile, authUser, restored){
  const me={id:uid,name:profile.display_name||profile.username||authUser.email,role:profile.role||'student',subject:'',classIds:[],studentCode:profile.student_id||'',className:profile.class_name||'',email:authUser.email,username:profile.username};
  users.set(uid,me);
  const safe=async(q,label)=>{const {data,error}=await q;if(error){console.warn('StudyLoad domain read '+label+':',error.message);return []}return data||[]};
- const [dbClasses,subjects,dbAssignments,progressRows,homeTeachers,subjectTeachers,dbProjects,dbTeams]=await Promise.all([
+ const [dbClasses,subjects,dbAssignments,progressRows,homeTeachers,subjectTeachers,dbProjects,dbTeams,officerRows]=await Promise.all([
   safe(sb.from('classes').select('id,name,academic_year,description').order('name'),'classes'),
   safe(sb.from('subjects').select('id,name,description').order('name'),'subjects'),
   safe(sb.from('assignments').select('id,title,description,subject_id,class_id,teacher_id,estimated_minutes,deadline,scheduled_date,priority,created_at,created_by,source').order('deadline'),'assignments'),
@@ -108,7 +108,8 @@ async function loadStudyLoadDomain(sb, profile, authUser, restored){
   safe(sb.from('class_homeroom_teachers').select('class_id,teacher_id').is('ended_at',null),'homeroom teachers'),
   safe(sb.from('class_subject_teachers').select('class_id,subject_id,teacher_id'),'subject teachers'),
   safe(sb.from('projects').select('id,name,description,class_id,created_by,deadline,status,team_id').order('created_at',{ascending:false}),'projects'),
-  safe(sb.from('class_teams').select('id,class_id,name,description,created_by,is_active').eq('is_active',true),'class teams')
+  safe(sb.from('class_teams').select('id,class_id,name,description,created_by,is_active').eq('is_active',true),'class teams'),
+  safe(sb.from('class_officer_roles').select('id,class_id,team_id,user_id,role,ended_at').eq('role','team_leader').is('ended_at',null),'team leaders')
  ]);
  const subjectById=new Map(subjects.map(x=>[x.id,x.name]));
  let classRows=[];
@@ -151,8 +152,8 @@ async function loadStudyLoadDomain(sb, profile, authUser, restored){
   const memberIds=members.map(m=>m.user_id);
   const teacherIds=[p.created_by];
   for(const id of [...memberIds,...teacherIds])if(!users.has(id))users.set(id,{id,name:'Thành viên',role:'student',classIds:[]});
-  const groups=teamRows.filter(g=>g.class_id===p.class_id).map(g=>({id:g.id,name:g.name,memberIds:g.members.map(m=>m.student_id),leaderId:g.members.find(m=>m.is_team_leader)?.student_id||null,remote:true}));
-  return {id:p.id,name:p.name,description:p.description,classId:p.class_id,teacherIds,memberIds,groups,tasks:pTasks.map(t=>({id:t.id,title:t.title,description:t.description,assigneeId:t.assigned_to,estimatedMinutes:t.estimated_minutes,dueAt:t.deadline,status:t.status==='done'?'Hoàn thành':t.status==='in_progress'?'Đang làm':'Chưa làm',contributors:t.completed_by?[t.completed_by]:[],assignmentHistory:[],createdBy:p.created_by})),resources:[],evidence:[],source:'supabase',history:[],deadline:p.deadline,status:p.status};
+  const groups=teamRows.filter(g=>g.class_id===p.class_id).map(g=>{const leader=officerRows.find(o=>o.team_id===g.id);return {id:g.id,name:g.name,memberIds:g.members.map(m=>m.student_id),leaderId:leader?.user_id||g.members.find(m=>m.is_team_leader)?.student_id||null,leaderRoleId:leader?.id||null,remote:true}});
+  return {id:p.id,name:p.name,description:p.description,classId:p.class_id,teacherIds,memberIds,groups,tasks:pTasks.map(t=>({id:t.id,title:t.title,description:t.description,assigneeId:t.assigned_to,estimatedMinutes:t.estimated_minutes,dueAt:t.deadline,status:(t.status==='completed'||t.status==='done')?'Hoàn thành':t.status==='in_progress'?'Đang làm':'Chưa làm',contributors:t.completed_by?[t.completed_by]:[],assignmentHistory:[],createdBy:p.created_by})),resources:[],evidence:[],source:'supabase',history:[],deadline:p.deadline,status:p.status};
  });
  const userList=[...users.values()];
  return {...restored,users:userList,currentUserId:uid,classes:classRows,subjects, tasks:[...localTasks,...domainTasks],projects:mappedProjects,busy:(restored.busy||[]).filter(x=>x.ownerId===uid),notifications:(restored.notifications||[]).filter(x=>x.userId===uid),libraries:restored.libraries&&typeof restored.libraries==='object'?restored.libraries:{}};
@@ -443,7 +444,37 @@ function projectDetail(id){let p=state.projects.find(x=>x.id===id);if(!p)return;
 modal(`Dự án: ${esc(p.name)}`,body,'Đóng');$('#modalSubmit').onclick=closeModal;
 $('#addGroup')?.addEventListener('click',()=>editGroup(p,null));$$('[data-action="edit-group"]').forEach(b=>b.onclick=()=>{closeModal();editGroup(p,p.groups.find(g=>g.id===b.dataset.id))});
 $('#addProjectTask')?.addEventListener('click',()=>{closeModal();projectTaskForm(p,group||p.groups[0])});$('#submitEvidence')?.addEventListener('click',()=>{closeModal();evidenceForm(p,group)});$('#addResource')?.addEventListener('click',()=>{closeModal();resourceForm(p,group)});}
-function editGroup(p,g){let c=state.classes.find(c=>c.id===p.classId),members=c.studentIds.filter(id=>!p.groups.some(x=>x.id!==g?.id&&x.memberIds.includes(id)));modal(g?'Sửa nhóm':'Thêm nhóm',`<form id="groupForm"><label>Tên nhóm *</label><input name="name" required value="${esc(g?.name||'Nhóm mới')}"><label>Thành viên (mỗi học sinh chỉ thuộc một nhóm trong dự án)</label>${members.map(id=>`<label class="checkrow"><input type="checkbox" name="members" value="${id}" ${(g?.memberIds||[]).includes(id)?'checked':''}>${esc(state.users.find(u=>u.id===id)?.name||'')}</label>`).join('')}<label>Trưởng nhóm (không bắt buộc)</label><select name="leader"><option value="">Không có trưởng nhóm</option>${members.filter(id=>(g?.memberIds||[]).includes(id)||!p.groups.some(x=>x.memberIds.includes(id))).map(id=>`<option value="${id}" ${g?.leaderId===id?'selected':''}>${esc(state.users.find(u=>u.id===id)?.name||'')}</option>`).join('')}</select></form>`);$('#modalSubmit').onclick=()=>{let f=$('#groupForm');if(!f.reportValidity())return;let d=new FormData(f),ids=d.getAll('members'),leader=d.get('leader')||null;if(leader&&!ids.includes(leader)){toast('Trưởng nhóm phải là thành viên nhóm.');return}if(g){let removed=g.memberIds.filter(id=>!ids.includes(id));if(removed.length&&p.tasks.some(t=>removed.includes(t.assigneeId)&&t.status!=='done')&&!confirm('Có nhiệm vụ chưa hoàn thành. Lưu thay đổi và giữ lịch sử phân công?'))return;g.name=d.get('name');g.memberIds=ids;g.leaderId=leader;removed.forEach(id=>p.history.push({at:iso(now()),note:`${id} rời ${g.name}; lịch sử nhiệm vụ được giữ`}));}else p.groups.push({id:uid('g'),name:d.get('name'),memberIds:ids,leaderId:leader});p.memberIds=[...new Set(p.groups.flatMap(x=>x.memberIds))];save();closeModal();render();projectDetail(p.id)}}
+function editGroup(p,g){
+ const c=state.classes.find(x=>x.id===p.classId);if(!c)return;
+ const members=c.studentIds.filter(id=>!p.groups.some(x=>x.id!==g?.id&&x.memberIds.includes(id)));
+ const memberOptions=members.map(id=>'<label class="checkrow"><input type="checkbox" name="members" value="'+esc(id)+'" '+((g?.memberIds||[]).includes(id)?'checked':'')+'>'+esc(state.users.find(u=>u.id===id)?.name||'')+'</label>').join('');
+ const leaderOptions=members.filter(id=>(g?.memberIds||[]).includes(id)||!p.groups.some(x=>x.memberIds.includes(id))).map(id=>'<option value="'+esc(id)+'" '+(g?.leaderId===id?'selected':'')+'>'+esc(state.users.find(u=>u.id===id)?.name||'')+'</option>').join('');
+ modal(g?'Sửa nhóm':'Thêm nhóm','<form id="groupForm"><label>Tên nhóm *</label><input name="name" required value="'+esc(g?.name||'Nhóm mới')+'"><label>Thành viên (mỗi học sinh chỉ thuộc một nhóm trong dự án)</label>'+memberOptions+'<label>Trưởng nhóm (không bắt buộc)</label><select name="leader"><option value="">Không có trưởng nhóm</option>'+leaderOptions+'</select></form>');
+ $('#modalSubmit').onclick=async()=>{
+  const f=$('#groupForm');if(!f.reportValidity())return;
+  const d=new FormData(f),ids=d.getAll('members'),leader=d.get('leader')||null;
+  if(leader&&!ids.includes(leader)){toast('Trưởng nhóm phải là thành viên nhóm.');return}
+  const sb=window.studyloadSupabase;
+  if(g?.remote){
+   const removed=g.memberIds.filter(id=>!ids.includes(id)),added=ids.filter(id=>!g.memberIds.includes(id));
+   if(removed.length&&p.tasks.some(t=>removed.includes(t.assigneeId)&&t.status!=='Hoàn thành')&&!confirm('Có nhiệm vụ chưa hoàn thành. Lưu thay đổi thành viên và giữ nguyên lịch sử nhiệm vụ?'))return;
+   for(const id of removed){const {error}=await sb.rpc('remove_class_team_member',{p_team_id:g.id,p_student_id:id});if(error){toast('Không thể gỡ thành viên: '+error.message);return}}
+   for(const id of added){const {error}=await sb.rpc('add_class_team_member',{p_team_id:g.id,p_student_id:id});if(error){toast('Không thể thêm thành viên: '+error.message);return}}
+   const {error:renameError}=await sb.from('class_teams').update({name:d.get('name')}).eq('id',g.id);
+   if(renameError){toast('Không đổi được tên nhóm: '+renameError.message);return}
+   if(g.leaderId!==leader){
+    if(g.leaderRoleId){const {error}=await sb.rpc('revoke_class_officer',{p_officer_role_id:g.leaderRoleId});if(error){toast('Không thu hồi được trưởng nhóm cũ: '+error.message);return}}
+    if(leader){const {error}=await sb.rpc('assign_class_officer',{p_class_id:c.id,p_user_id:leader,p_role:'team_leader',p_team_id:g.id});if(error){toast('Không gán được trưởng nhóm mới: '+error.message);return}}
+   }
+  }else{
+   const {data:teamId,error}=await sb.rpc('create_class_team',{p_class_id:c.id,p_name:d.get('name'),p_description:'Nhóm dự án '+p.name});
+   if(error){toast('Không tạo được nhóm: '+error.message);return}
+   for(const id of ids){const {error:e}=await sb.rpc('add_class_team_member',{p_team_id:teamId,p_student_id:id});if(e){toast('Nhóm đã tạo nhưng thêm thành viên lỗi: '+e.message);return}}
+   if(leader){const {error:e}=await sb.rpc('assign_class_officer',{p_class_id:c.id,p_user_id:leader,p_role:'team_leader',p_team_id:teamId});if(e){toast('Nhóm đã tạo nhưng chưa gán được trưởng nhóm: '+e.message);return}}
+  }
+  closeModal();await reloadStudyLoadDomain();render();projectDetail(p.id);toast('Đã cập nhật nhóm trên Supabase.');
+ };
+}
 function projectTaskForm(p,g){
  const members=g?.memberIds||p.memberIds||[];
  if(!isTeacher()&&(!g||g.leaderId!==current().id)){toast('Chỉ giáo viên phụ trách hoặc trưởng nhóm được giao nhiệm vụ.');return}
