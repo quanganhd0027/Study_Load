@@ -17,6 +17,7 @@ jobs:
         run: |
           node --check app.js
           node --check supabase-client.js
+          node --test tests/*.test.js
       - name: Check frontend wiring
         run: |
           grep -q 'supabase-client.js' index.html
