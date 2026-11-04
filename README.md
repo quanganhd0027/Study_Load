@@ -57,6 +57,7 @@ The Supabase migrations applied during integration are tracked in `supabase/migr
 - `20261104160442_allow_project_evidence_review_notifications`
 - `20261104160555_consolidate_duty_schedule_update_policy`
 - `20261104160632_optimize_notification_policy_auth_uid`
+- `20261104161113_drop_duplicate_indexes`
 
 ## Known limitations before production sign-off
 
