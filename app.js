@@ -26,7 +26,7 @@ currentUserId:'stu1',tasks:[
 const emptyState=()=>({version:1,users:[],currentUserId:'',tasks:[],busy:[],classes:[],projects:[],libraries:{},notifications:[],reminderSettings:{hours:[24,2],studyOnly:false},cycleHistory:[],activeCycle:null,viewDate:localDay(now()),weekMode:'week'});
 let state;
 try{let raw=localStorage.getItem('studyload_v2');state=raw?JSON.parse(raw):emptyState();if(!state||state.version!==1)state=emptyState()}catch(e){state=emptyState()}
-let page='dashboard', timer={taskId:null,status:'idle',accum:0,startedAt:null,autoPausePrompted:false}, timerInterval=null, calendarMode='week', libraryTab='personal', extraStudyChooser=false, extraPromptDismissedDay=null, extraOverloadNotice='';
+let page='dashboard', toolClassId=null, timer={taskId:null,status:'idle',accum:0,startedAt:null,autoPausePrompted:false}, timerInterval=null, calendarMode='week', libraryTab='personal', extraStudyChooser=false, extraPromptDismissedDay=null, extraOverloadNotice='';
 let remoteSaveTimer=null, remoteSaveRevision=0;
 function save(){
  const userId=state.currentUserId;
@@ -100,7 +100,7 @@ async function loadStudyLoadDomain(sb, profile, authUser, restored){
  const me={id:uid,name:profile.display_name||profile.username||authUser.email,role:profile.role||'student',subject:'',classIds:[],studentCode:profile.student_id||'',className:profile.class_name||'',email:authUser.email,username:profile.username};
  users.set(uid,me);
  const safe=async(q,label)=>{const {data,error}=await q;if(error){console.warn('StudyLoad domain read '+label+':',error.message);return []}return data||[]};
- const [dbClasses,subjects,dbAssignments,progressRows,homeTeachers,subjectTeachers,dbProjects,dbTeams,officerRows,dbEvidence,dbResources]=await Promise.all([
+ const [dbClasses,subjects,dbAssignments,progressRows,homeTeachers,subjectTeachers,dbProjects,dbTeams,officerRows,dbEvidence,dbResources,dutyRows,dutyEvidenceRows,officerTaskRows,announcementRows,announcementReadRows,delegationRows,weeklyRows,teamUpdateRows,libraryRows,assignmentEvidenceRows]=await Promise.all([
   safe(sb.from('classes').select('id,name,academic_year,description').order('name'),'classes'),
   safe(sb.from('subjects').select('id,name,description').order('name'),'subjects'),
   safe(sb.from('assignments').select('id,title,description,subject_id,class_id,teacher_id,estimated_minutes,deadline,scheduled_date,priority,created_at,created_by,source').order('deadline'),'assignments'),
@@ -111,7 +111,17 @@ async function loadStudyLoadDomain(sb, profile, authUser, restored){
   safe(sb.from('class_teams').select('id,class_id,name,description,created_by,is_active').eq('is_active',true),'class teams'),
   safe(sb.from('class_officer_roles').select('id,class_id,team_id,user_id,role,ended_at').eq('role','team_leader').is('ended_at',null),'team leaders'),
   safe(sb.from('project_evidence').select('id,project_id,group_id,title,description,external_url,submitted_by,contributors,status,created_at,reviewed_by,reviewed_at'),'project evidence'),
-  safe(sb.from('project_resources').select('id,project_id,group_id,name,description,external_url,owner_id,created_at'),'project resources')
+  safe(sb.from('project_resources').select('id,project_id,group_id,name,description,external_url,owner_id,created_at'),'project resources'),
+  safe(sb.from('duty_schedules').select('id,class_id,team_id,student_id,duty_date,duty_type,status,note,approved_by,completed_at,created_by,created_at').order('duty_date',{ascending:false}),'duty schedules'),
+  safe(sb.from('duty_evidence').select('id,duty_schedule_id,submitted_by,file_path,note,created_at').order('created_at',{ascending:false}),'duty evidence'),
+  safe(sb.from('officer_tasks').select('id,class_id,team_id,title,description,category,assigned_by,assigned_to,status,priority,due_at,completed_at,created_at').order('created_at',{ascending:false}),'officer tasks'),
+  safe(sb.from('class_announcements').select('id,class_id,title,content,posted_by,is_pinned,expires_at,created_at').order('is_pinned',{ascending:false}).order('created_at',{ascending:false}),'announcements'),
+  safe(sb.from('announcement_reads').select('announcement_id,user_id,read_at').eq('user_id',uid),'announcement reads'),
+  safe(sb.from('role_delegations').select('id,class_id,officer_role_id,delegated_from,delegated_to,delegated_by,starts_at,ends_at,revoked_at,reason').order('created_at',{ascending:false}),'role delegations'),
+  safe(sb.from('class_weekly_reports').select('id,class_id,week_start,week_end,created_by,attendance_summary,homework_summary,duty_summary,event_summary,comments,created_at').order('week_start',{ascending:false}),'weekly reports'),
+  safe(sb.from('team_weekly_updates').select('id,team_id,user_id,week_start,completed_text,planned_text,blocker_text,created_at,updated_at').order('week_start',{ascending:false}),'team weekly updates'),
+  safe(sb.from('library_items').select('id,owner_id,name,description,external_url,file_path,shared_with,created_at,updated_at').order('created_at',{ascending:false}),'library items'),
+  safe(sb.from('assignment_evidence').select('id,progress_id,student_id,file_path,note,created_at').order('created_at',{ascending:false}),'assignment evidence')
  ]);
  const subjectById=new Map(subjects.map(x=>[x.id,x.name]));
  let classRows=[];
@@ -160,8 +170,11 @@ async function loadStudyLoadDomain(sb, profile, authUser, restored){
   return {id:p.id,name:p.name,description:p.description,classId:p.class_id,teacherIds,memberIds,groups,tasks:pTasks.map(t=>({id:t.id,title:t.title,description:t.description,assigneeId:t.assigned_to,estimatedMinutes:t.estimated_minutes,dueAt:t.deadline,status:(t.status==='completed'||t.status==='done')?'Hoàn thành':t.status==='in_progress'?'Đang làm':'Chưa làm',contributors:t.completed_by?[t.completed_by]:[],assignmentHistory:[],createdBy:p.created_by})),resources,evidence,source:'supabase',history:[],deadline:p.deadline,status:p.status};
  });
  const userList=[...users.values()];
+ const officerRoles=await safe(sb.from('class_officer_roles').select('id,class_id,user_id,role,team_id,assigned_at,ended_at').is('ended_at',null),'officer roles');
+ const readIds=new Set(announcementReadRows.map(x=>x.announcement_id));
+ const mappedLibraries=libraryRows.map(x=>({id:x.id,ownerId:x.owner_id,name:x.name,description:x.description,url:x.external_url,filePath:x.file_path,sharedWith:x.shared_with||[],createdAt:x.created_at,remote:true}));
  me.homeroom=classRows.some(c=>(c.homeroomTeacherIds||[]).includes(uid));
- return {...restored,users:userList,currentUserId:uid,classes:classRows,subjects,subjectAssignments:subjectTeachers,tasks:[...localTasks,...domainTasks],projects:mappedProjects,busy:(restored.busy||[]).filter(x=>x.ownerId===uid),notifications:(restored.notifications||[]).filter(x=>x.userId===uid),libraries:restored.libraries&&typeof restored.libraries==='object'?restored.libraries:{}};
+ return {...restored,users:userList,currentUserId:uid,classes:classRows,subjects,subjectAssignments:subjectTeachers,tasks:[...localTasks,...domainTasks],projects:mappedProjects,busy:(restored.busy||[]).filter(x=>x.ownerId===uid),notifications:(restored.notifications||[]).filter(x=>x.userId===uid),libraries:{...(restored.libraries||{}),[uid]:mappedLibraries},officerRoles,duties:dutyRows,dutyEvidence:dutyEvidenceRows,officerTasks:officerTaskRows,announcements:announcementRows.map(x=>({...x,is_read:readIds.has(x.id)})),delegations:delegationRows,weeklyReports:weeklyRows,teamWeeklyUpdates:teamUpdateRows,libraryItems:mappedLibraries,assignmentEvidence:assignmentEvidenceRows};
 }
 
 async function openAppForAccount(authUser){
@@ -278,7 +291,7 @@ function pageHead(title,sub){$('#pageTitle').textContent=title;$('#subtitle').te
 function render(){
  const u=current();$('#userSelect').innerHTML=`<option value="${u.id}">${esc(u.name)} · ${isAdmin()?'Admin':isTeacher()?'Giáo viên':'Học sinh'}</option>`;
  $$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.page===page));
- if(page==='dashboard')renderDashboard();if(page==='tasks')renderTasks();if(page==='calendar')renderCalendar();if(page==='classes')renderClasses();if(page==='library')renderLibrary();if(page==='reports')renderReports();if(page==='notifications')renderNotifications();if(page==='settings')renderSettings();
+ if(page==='dashboard')renderDashboard();if(page==='tasks')renderTasks();if(page==='calendar')renderCalendar();if(page==='classes')renderClasses();if(page==='class-tools')renderClassTools();if(page==='library')renderLibrary();if(page==='reports')renderReports();if(page==='notifications')renderNotifications();if(page==='settings')renderSettings();
 }
 function renderDashboard(){let u=current();pageHead('Tổng quan',isTeacher()?'Theo dõi nhiệm vụ đã giao, hạn nộp và tiến độ của học sinh.':'Xem việc cần làm, lịch học và thời gian đã học.');let tasks=isStudent()?activeTasks(u.id):teacherTasks(u);let risks=isStudent()?riskTasks(u.id):tasks.filter(t=>(t.unscheduledMinutes||0)>0);let dueSoon=tasks.filter(t=>new Date(t.dueAt)-now()<DAY);let mins=state.tasks.filter(t=>isStudent()?t.ownerId===u.id:allowedTaskIds(u).has(t.id)).reduce((n,t)=>n+(+t.actualMinutes||0),0);
  $('#content').innerHTML=`<div class="grid">
