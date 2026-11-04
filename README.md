@@ -37,3 +37,21 @@ Do không có máy chủ, việc tạo/quản lý quyền quản trị phía tr�
 ## Kiểm tra
 
 `app.js` đã được kiểm tra cú pháp bằng `node --check`. Chưa thay thế kiểm thử trình duyệt hoặc kiểm thử bảo mật.
+
+
+## Supabase integration
+
+The application now uses Supabase Auth for registration, sign-in, session persistence, and sign-out. Browser configuration is in `supabase-client.js` and contains only the project's public publishable key (never a service-role/secret key).
+
+Per-user application state is stored in `public.user_app_state`, protected by row-level security so an authenticated user can read and write only their own state. The database migration is `add_user_app_state`.
+
+### Required Supabase Auth configuration
+
+- Enable email/password authentication.
+- Configure the production Site URL and allowed redirect URLs for the deployed domain.
+- If email confirmation is enabled, users must confirm their email before signing in.
+- Keep the publishable key in the browser; never expose a service-role or secret key.
+
+### Current integration boundary
+
+The existing frontend has a broad local application model. This release synchronizes each signed-in user's personal app state to Supabase. Class-wide collaboration, teacher visibility into student records, file evidence uploads, and migration of existing browser-local demo accounts/data still require dedicated table-by-table mapping and end-to-end authorization tests before production use. Do not treat client-side role display as authorization; database RLS remains authoritative.
