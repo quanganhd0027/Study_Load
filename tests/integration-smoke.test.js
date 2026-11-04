@@ -22,6 +22,14 @@ test('browser configuration contains only a publishable Supabase key', () => {
   assert.match(client, /wbodoxqobkonkafjhfoh\.supabase\.co/);
 });
 
+test('password recovery flow is wired to Supabase Auth', () => {
+  assert.match(app, /resetPasswordForEmail/);
+  assert.match(app, /updateUser\(\{password\}/);
+  assert.match(app, /PASSWORD_RECOVERY/);
+  assert.match(app, /type=recovery/);
+  assert.match(app, /id="forgotPassword"/);
+});
+
 test('legacy browser password authentication has been removed', () => {
   assert.doesNotMatch(app, /studyload_accounts_v1|studyload_session_v1|passwordHash|hashPassword/);
   assert.match(app, /signInWithPassword/);
