@@ -32,7 +32,7 @@ function save(){
  const userId=state.currentUserId;
  if(!userId){localStorage.setItem('studyload_v2_guest',JSON.stringify(state));return}
  const user=current();
- const payload={...state,users:[user],currentUserId:userId};
+ const payload={...state,users:[user],currentUserId:userId,tasks:(state.tasks||[]).filter(t=>!t.remoteProgressId&&t.source!=='supabase')};
  localStorage.setItem('studyload_v2_'+userId,JSON.stringify(payload));
  if(!window.studyloadSupabase||window.studyloadSessionUserId!==userId)return;
  const revision=++remoteSaveRevision;
@@ -40,10 +40,22 @@ function save(){
  remoteSaveTimer=setTimeout(async()=>{
   try{
    if(revision!==remoteSaveRevision||window.studyloadSessionUserId!==userId)return;
-   const {error}=await window.studyloadSupabase.from('user_app_state').upsert({
-    user_id:userId,state:payload,updated_at:new Date().toISOString()
-   },{onConflict:'user_id'});
+   const sb=window.studyloadSupabase;
+   const {error}=await sb.from('user_app_state').upsert({user_id:userId,state:payload,updated_at:new Date().toISOString()},{onConflict:'user_id'});
    if(error)throw error;
+   if(current().role==='student'){
+    for(const t of state.tasks.filter(x=>x.ownerId===userId&&x.remoteProgressId)){
+     const status=t.status==='done'?'completed':t.status==='doing'?'in_progress':'not_started';
+     const {error:progressError}=await sb.from('assignment_progress').update({status,actual_minutes:Number(t.actualMinutes)||0,completed_at:status==='completed'?new Date().toISOString():null,started_at:status==='in_progress'?(t.sessions?.[0]?.startAt||new Date().toISOString()):null,updated_at:new Date().toISOString()}).eq('id',t.remoteProgressId);
+     if(progressError)throw progressError;
+     for(const session of (t.sessions||[]).filter(x=>!x.remote&&!x.planned&&Number(x.minutes)>0)){
+      const {data:inserted,error:sessionError}=await sb.from('study_sessions').insert({progress_id:t.remoteProgressId,student_id:userId,started_at:session.startAt||new Date().toISOString(),ended_at:session.endAt||new Date().toISOString(),duration_minutes:Math.round(session.minutes)}).select('id').single();
+      if(sessionError)throw sessionError;
+      session.remote=true;session.id=inserted.id;
+     }
+    }
+   }
+   window.studyloadSyncError=null;
   }catch(error){console.error('StudyLoad sync failed:',error);window.studyloadSyncError=error.message||'Không thể đồng bộ dữ liệu.'}
  },450);
 }
@@ -317,7 +329,43 @@ function cancelTaskReminders(id){state.notifications=state.notifications.filter(
 function checkReminders(){let u=current(),count=0;for(let t of state.tasks.filter(t=>t.ownerId===u.id&&t.status!=='done')){let due=new Date(t.dueAt),hours=(due-now())/3600000;if(hours<0){cancelTaskReminders(t.id);continue}for(let h of state.reminderSettings.hours){if(hours<=h&&hours>h-0.15){if(state.reminderSettings.studyOnly&&!isFreeNow(u.id)){continue}let title=`Nhắc hạn còn ${h} giờ`,key=`reminder_${t.id}_${h}_${t.dueAt}`;if(!state.notifications.some(n=>n.key===key)){notifyUser(u.id,title,`${t.title} · còn ${Math.max(0,Math.round(hours*60))} phút tới hạn.`, 'reminder',t.id);count++}}}}save();render();toast(count?`Đã tạo ${count} nhắc hạn phù hợp.`:'Không có nhắc hạn mới cần hiển thị.')}
 function isFreeNow(owner){let d=now(),ranges=rangesForDay(d,owner);return ranges.some(([a,b])=>d>=a&&d<b)}
 function openBusy(){let u=current();modal('Thêm thời gian bận',`<form id="busyForm"><label>Tên khoảng bận *</label><input name="label" required placeholder="Học thêm, nghỉ ngơi…"><div class="form-grid"><div><label>Bắt đầu *</label><input type="time" name="start" required value="19:00"></div><div><label>Kết thúc *</label><input type="time" name="end" required value="20:00"></div></div><label>Ngày lặp lại</label><div class="member-grid">${['CN','T2','T3','T4','T5','T6','T7'].map((d,i)=>`<label class="checkrow"><input type="checkbox" name="days" value="${i}" ${i>0&&i<6?'checked':''}>${d}</label>`).join('')}</div></form>`);$('#modalSubmit').onclick=()=>{let f=$('#busyForm');if(!f.reportValidity())return;let d=new FormData(f),days=d.getAll('days').map(Number);if(!days.length){toast('Chọn ít nhất một ngày.');return}let [sh,sm]=d.get('start').split(':').map(Number),[eh,em]=d.get('end').split(':').map(Number);if(sh===eh&&sm===em){toast('Khoảng bận không thể dài 0 phút.');return}if(eh*60+em<sh*60+sm||eh*60+em>23*60){toast('Cảnh báo: khoảng bận kết thúc sau 11:00 PM hoặc qua nửa đêm. Vui lòng xác nhận cách khai báo.');if(!confirm('Khoảng thời gian kết thúc muộn hoặc qua nửa đêm. Vẫn lưu như đã nhập?'))return}state.busy.push({id:uid('b'),ownerId:u.id,label:d.get('label'),start:d.get('start'),end:d.get('end'),days,source:'user'});closeModal();schedule(u.id);render();toast('Đã lưu thời gian bận và tính lại lịch.')}}
-function newClass(){modal('Tạo lớp học',`<form id="classForm"><label>Tên lớp *</label><input name="name" required><label>Giáo viên phụ trách</label>${state.users.filter(u=>u.role==='teacher').map(u=>`<label class="checkrow"><input type="checkbox" name="teachers" value="${u.id}" ${u.id===current().id?'checked':''}>${esc(u.name)} (${esc(u.subject||'')})</label>`).join('')}<label>Học sinh</label>${state.users.filter(u=>u.role==='student').map(u=>`<label class="checkrow"><input type="checkbox" name="students" value="${u.id}">${esc(u.name)}</label>`).join('')}</form>`);$('#modalSubmit').onclick=()=>{let f=$('#classForm');if(!f.reportValidity())return;let d=new FormData(f),teachers=d.getAll('teachers'),students=d.getAll('students');if(!teachers.length){toast('Lớp cần ít nhất một giáo viên.');return}let c={id:uid('c'),name:d.get('name'),teacherIds:teachers,studentIds:students,source:'user'};state.classes.push(c);students.forEach(id=>{let x=state.users.find(u=>u.id===id);if(x&&!x.classIds.includes(c.id))x.classIds.push(c.id)});closeModal();save();render();toast('Đã tạo lớp.')}}
+function newClass(){
+ if(!isAdmin()){toast('Chỉ quản trị viên mới được tạo lớp và thêm thành viên.');return}
+ const teachers=state.users.filter(u=>u.role==='teacher'),students=state.users.filter(u=>u.role==='student');
+ const teacherOptions=teachers.map(u=>'<option value="'+esc(u.id)+'">'+esc(u.name)+'</option>').join('');
+ const studentOptions=students.map(u=>'<label class="checkrow"><input type="checkbox" name="students" value="'+esc(u.id)+'">'+esc(u.name)+'</label>').join('');
+ const subjectOptions=(state.subjects||[]).map(sub=>'<div class="item"><span>'+esc(sub.name)+'</span><select name="subject_'+esc(sub.id)+'"><option value="">Chưa phân công</option>'+teacherOptions+'</select></div>').join('');
+ modal('Tạo lớp học','<form id="classForm"><label>Tên lớp *</label><input name="name" required maxlength="80"><label>Năm học</label><input name="year" placeholder="2026–2027"><label>Mô tả</label><textarea name="description" rows="2"></textarea><label>Giáo viên chủ nhiệm *</label><select name="homeroom" required><option value="">Chọn giáo viên</option>'+teacherOptions+'</select><label>Giáo viên bộ môn (tùy chọn)</label>'+(subjectOptions||'<p class="muted">Chưa có môn học.</p>')+'<label>Học sinh tham gia</label><div class="member-grid">'+(studentOptions||'<p class="muted">Chưa có học sinh nào đăng ký.</p>')+'</div></form>');
+ $('#modalSubmit').onclick=async()=>{
+  const f=$('#classForm');if(!f.reportValidity())return;
+  const d=new FormData(f),name=String(d.get('name')||'').trim(),homeroom=d.get('homeroom');
+  if(!name||!homeroom){toast('Nhập tên lớp và chọn giáo viên chủ nhiệm.');return}
+  const sb=window.studyloadSupabase;
+  const {data:classId,error}=await sb.rpc('admin_create_class',{p_name:name,p_academic_year:d.get('year')||null,p_description:d.get('description')||null});
+  if(error){toast('Không tạo được lớp: '+error.message);return}
+  const {error:homeError}=await sb.rpc('admin_assign_homeroom_teacher',{p_class_id:classId,p_teacher_id:homeroom});
+  if(homeError){toast('Đã tạo lớp nhưng chưa gán được GVCN: '+homeError.message);return}
+  for(const studentId of d.getAll('students')){
+   const {error:e}=await sb.rpc('admin_add_class_member',{p_class_id:classId,p_student_id:studentId});
+   if(e){toast('Lớp đã tạo; thêm một học sinh thất bại: '+e.message);return}
+  }
+  for(const sub of (state.subjects||[])){
+   const teacherId=d.get('subject_'+sub.id);if(!teacherId)continue;
+   const {error:e}=await sb.rpc('admin_assign_subject_teacher',{p_class_id:classId,p_subject_id:sub.id,p_teacher_id:teacherId});
+   if(e){toast('Lớp đã tạo; phân công môn '+sub.name+' thất bại: '+e.message);return}
+  }
+  closeModal();await reloadStudyLoadDomain();render();toast('Đã tạo lớp và lưu phân công lên Supabase.');
+ };
+}
+async function reloadStudyLoadDomain(){
+ const sb=window.studyloadSupabase,userId=window.studyloadSessionUserId;
+ const {data:authData}=await sb.auth.getUser();if(!authData||!authData.user)return;
+ const {data:profile}=await sb.from('profiles').select('*').eq('id',userId).single();
+ if(!profile)return;
+ const {data:stored}=await sb.from('user_app_state').select('state').eq('user_id',userId).maybeSingle();
+ state=await loadStudyLoadDomain(sb,profile,authData.user,stored&&stored.state?stored.state:emptyState());
+ schedule(userId);
+}
 function assignTask(classId){let c=state.classes.find(c=>c.id===classId);openTask({classId,teacherId:current().id,estimatedMinutes:60,remainingWorkMinutes:60,priority:2},c.studentIds[0]||'stu1')}
 function newProject(){let classes=state.classes.filter(c=>c.teacherIds.includes(current().id));if(!classes.length){toast('Bạn cần là giáo viên phụ trách một lớp để tạo dự án.');return}modal('Tạo dự án nhóm',`<form id="projectForm"><label>Tên dự án *</label><input name="name" required><label>Lớp *</label><select name="classId">${classes.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select><label>Chia nhóm</label><select name="mode" id="groupMode"><option value="auto">Tự động ngẫu nhiên</option><option value="manual">Thủ công</option></select><div class="form-grid"><div><label>Số nhóm</label><input type="number" min="1" name="groupCount" value="2"></div><div><label>Số thành viên/nhóm (ưu tiên)</label><input type="number" min="1" name="groupSize" value="3"></div></div><p class="muted">Giáo viên xem trước và có thể điều chỉnh thành viên sau khi tạo.</p></form>`);$('#modalSubmit').onclick=()=>{let f=$('#projectForm');if(!f.reportValidity())return;let d=new FormData(f),c=state.classes.find(c=>c.id===d.get('classId')),members=[...c.studentIds];if(!members.length){toast('Lớp chưa có học sinh.');return}let groups=[];if(d.get('mode')==='auto'){members.sort(()=>Math.random()-.5);let gc=Math.max(1,Math.min(members.length,+d.get('groupCount')||1));groups=Array.from({length:gc},(_,i)=>({id:uid('g'),name:`Nhóm ${i+1}`,memberIds:[],leaderId:null}));members.forEach((m,i)=>groups[i%gc].memberIds.push(m))}else groups=[{id:uid('g'),name:'Nhóm 1',memberIds:[],leaderId:null}];let p={id:uid('p'),name:d.get('name'),classId:c.id,teacherIds:[current().id],memberIds:members,groups,tasks:[],resources:[],evidence:[],source:'user',history:[]};state.projects.push(p);closeModal();save();render();projectDetail(p.id)}}
 function projectDetail(id){let p=state.projects.find(x=>x.id===id);if(!p)return;let u=current(),canTeacher=isTeacher()&&p.teacherIds.includes(u.id),group=p.groups.find(g=>g.memberIds.includes(u.id)),canView=canTeacher||!!group||p.memberIds.includes(u.id);if(!canView){toast('Bạn không có quyền xem dự án này.');return}let body=`<div class="stack"><p class="muted">${esc(state.classes.find(c=>c.id===p.classId)?.name||'')} · Thành viên dự án: ${p.memberIds.length}</p><div class="between"><h3>Nhóm</h3>${canTeacher?'<button class="small secondary" id="addGroup">+ Nhóm thủ công</button>':''}</div>${p.groups.map(g=>`<div class="item"><div><div class="item-title">${esc(g.name)} ${g.leaderId?'· Trưởng nhóm: '+esc(state.users.find(x=>x.id===g.leaderId)?.name||''): '· Không có trưởng nhóm'}</div><div class="item-meta">${g.memberIds.map(mid=>esc(state.users.find(x=>x.id===mid)?.name||'')).join(', ')||'Chưa có thành viên'}</div></div>${canTeacher?`<button class="small secondary" data-action="edit-group" data-id="${g.id}" data-project="${p.id}">Sửa nhóm</button>`:''}</div>`).join('')}<div class="between"><h3>Nhiệm vụ dự án</h3>${(canTeacher||group)?'<button class="small" id="addProjectTask">+ Nhiệm vụ</button>':''}</div>${p.tasks.map(t=>{let taskGroup=p.groups.find(g=>g.memberIds.includes(t.assigneeId)),canLeaderComplete=!!group&&group.leaderId===u.id&&group.id===taskGroup?.id&&t.status!=='Hoàn thành';return `<div class="item"><div><div class="item-title">${esc(t.title)}</div><div class="item-meta">Giao: ${esc(state.users.find(x=>x.id===t.assigneeId)?.name||'Chưa giao')} · ${t.estimatedMinutes} phút · ${fmtDate(t.dueAt)} · ${esc(t.status)}</div><div class="item-meta">Đóng góp: ${(t.contributors||[]).map(x=>esc(state.users.find(u=>u.id===x)?.name||'')).join(', ')||'Chưa ghi nhận'}</div></div>${canLeaderComplete?`<button class="small" data-action="complete-project-task" data-id="${t.id}" data-project="${p.id}">Đánh dấu hoàn thành</button>`:''}</div>`}).join('')||'<div class="empty">Chưa có nhiệm vụ dự án.</div>'}<div class="between"><h3>Minh chứng</h3>${group?'<button class="small" id="submitEvidence">+ Nộp minh chứng</button>':''}</div>${p.evidence.filter(e=>canTeacher||e.groupId===group?.id).map(e=>`<div class="item"><div><div class="item-title">${esc(e.title)} <span class="badge ${e.status==='Đã xác nhận'?'green':e.status==='Yêu cầu sửa'?'red':'amber'}">${esc(e.status)}</span></div><div class="item-meta">Nhóm: ${esc(p.groups.find(g=>g.id===e.groupId)?.name||'')} · Nộp bởi ${esc(state.users.find(x=>x.id===e.submittedBy)?.name||'')} · ${esc(e.text||'')} ${e.url?`<a href="${esc(e.url)}" target="_blank" rel="noopener">Mở liên kết</a>`:''}</div></div><div class="actions">${canTeacher?`<button class="small secondary" data-action="evidence-status" data-id="${e.id}" data-project="${p.id}" data-status="Đã xác nhận">Xác nhận</button><button class="small secondary" data-action="evidence-status" data-id="${e.id}" data-project="${p.id}" data-status="Yêu cầu sửa">Yêu cầu sửa</button>`:''}${(group?.id===e.groupId&&(group.leaderId===u.id||!group.leaderId))?`<button class="small danger" data-action="delete-evidence" data-id="${e.id}" data-project="${p.id}">Xóa</button>`:''}</div></div>`).join('')||'<div class="empty">Không có minh chứng trong phạm vi quyền truy cập.</div>'}<h3>Tài liệu dự án</h3>${p.resources.filter(r=>canTeacher||r.groupId==null||r.groupId===group?.id).map(r=>`<div class="item"><div><div class="item-title">${esc(r.name)}</div><div class="item-meta">${esc(r.description||'')} ${r.url?`· <a href="${esc(r.url)}" target="_blank" rel="noopener">Mở</a>`:''} · Người tải: ${esc(state.users.find(x=>x.id===r.ownerId)?.name||'')}</div></div>${canTeacher||r.ownerId===u.id?`<button class="small danger" data-action="delete-resource" data-id="${r.id}" data-project="${p.id}">Xóa</button>`:''}</div>`).join('')||'<div class="muted">Chưa có tài liệu dự án.</div>'}<button class="secondary" id="addResource">+ Tài liệu dự án</button></div>`;
