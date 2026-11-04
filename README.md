@@ -1,6 +1,6 @@
 # StudyLoad
 
-StudyLoad is a browser-based study planner with Supabase authentication and shared academic data.
+StudyLoad is a browser-based study planner with Supabase authentication, shared class workflows, project collaboration, and per-user cloud state.
 
 ## Run locally
 
@@ -21,51 +21,51 @@ Required Auth configuration:
 - Enable email/password sign-in.
 - Set the production Site URL and allowed redirect URLs.
 - If email confirmation is enabled, users must confirm their email before signing in.
-- The `handle_new_user()` trigger creates a student profile from Auth metadata. New registrations cannot self-assign teacher or admin roles.
+- `handle_new_user()` creates a student profile from Auth metadata. New registrations cannot self-assign teacher or admin roles.
 
-## Data integration
+## Integrated data domains
 
-The frontend now reads and writes these shared Supabase domains:
+- **Identity and administration:** Supabase Auth, profiles, teacher-role requests, account role/banning/profile management, class and subject administration.
+- **Classes:** class rosters, homeroom and subject teacher assignments, class membership.
+- **Assignments:** class assignments, per-student progress, study sessions, private assignment evidence uploads.
+- **Personal planner:** personal tasks, busy-time windows, reminder preferences and other per-user app state synced through `user_app_state`.
+- **Class operations:** duty schedules, duty evidence uploads/reviews, officer tasks, class officer roles, temporary role delegations, announcements and read receipts.
+- **Reports:** class weekly reports and per-member team weekly updates.
+- **Projects:** projects and members, class teams and team leaders, project tasks, evidence and resource uploads.
+- **Library:** private personal files, per-user sharing, signed file access and external links.
+- **Notifications:** per-user cloud activity inbox for class/project events plus local due-date reminders.
 
-- **Identity:** Supabase Auth and `profiles`; teacher access requests are reviewed through the admin RPC.
-- **Classes:** class roster, homeroom teachers, subject teachers, subjects. Class and subject creation/assignment is restricted to admins.
-- **Assignments:** class assignments are stored in `assignments`; per-student status and actual time are stored in `assignment_progress`; confirmed study sessions are stored in `study_sessions`.
-- **Projects:** projects and members, class teams and team leaders, project tasks, project evidence and project resources.
-- **Personal state:** preferences, personal tasks and busy-time settings are stored in `user_app_state` and protected by user-scoped RLS.
+The frontend role checks are only for user experience. Database RLS and authorization-checked RPCs remain authoritative. Private Storage buckets are used for personal library, project files, assignment evidence and duty evidence.
 
-Database-side RLS and validated RPCs remain authoritative. Frontend role checks are for user experience only.
+## Database migrations
 
-## Current limitations — not production sign-off
+The Supabase migrations applied during integration are tracked in `supabase/migrations/`:
 
-The following parts of the existing UI are **not yet fully connected** to their dedicated Supabase domain tables and must not be treated as shared/production-ready workflows:
+- `20261104152327_add_user_app_state`
+- `20261104154414_fix_project_task_initial_status`
+- `20261104154432_add_project_evidence_and_resources`
+- `20261104154440_restrict_project_evidence_review`
+- `20261104154621_restrict_user_app_state_privileges`
+- `20261104154714_restrict_trigger_function_execution`
+- `20261104154750_align_project_task_status_and_team_leader_access`
+- `20261104155545_add_private_shared_library`
+- `20261104155833_allow_library_metadata_only_items`
+- `20261104160010_add_shared_user_notifications`
+- `20261104160027_allow_class_teacher_activity_notifications`
+- `20261104160053_add_private_project_file_storage`
+- `20261104160213_allow_admin_class_notifications`
+- `20261104160442_allow_project_evidence_review_notifications`
 
-- Duty schedules and duty evidence submissions/reviews.
-- Officer tasks, role delegations, announcements and read receipts.
-- Class weekly reports and team weekly updates.
-- Personal library file storage and cross-user sharing.
-- Uploading binary files for project evidence/resources (current project evidence/resources support text and external links).
-- Complete profile administration, account banning, and all admin user-management screens.
+## Known limitations before production sign-off
 
-Legacy browser-local demo data and sample accounts are not automatically migrated into the relational schema. Personal tasks remain in the user's app-state snapshot; only class assignments have per-student relational progress. No live browser end-to-end test has been completed in this integration pass.
-
-## Security checks to complete before public production
-
-- Review the 41 existing `SECURITY DEFINER` functions exposed to authenticated users; each must have a verified authorization check or restricted EXECUTE grants.
-- Enable leaked-password protection in Supabase Auth.
-- Re-run Supabase Security and Performance Advisors and address remaining policy/index findings.
-- Test registration, email confirmation, role boundaries, class membership, assignment progress, project membership and evidence review with separate student, teacher and admin accounts.
-- Configure production Auth redirect URLs and verify the deployed domain.
-
-## Database migrations added in this integration
-
-- `add_user_app_state`
-- `fix_project_task_initial_status`
-- `add_project_evidence_and_resources`
-- `restrict_project_evidence_review`
-- `restrict_user_app_state_privileges`
-- `restrict_trigger_function_execution`
-- `align_project_task_status_and_team_leader_access`
+- No full browser end-to-end test has yet been completed with separate student, teacher, and administrator accounts. CI currently checks JavaScript syntax and frontend wiring, not every workflow or RLS edge case.
+- Existing browser-local demo/sample data is not automatically migrated into relational Supabase records.
+- Notifications are stored in the cloud inbox, but there is no push delivery while the browser is closed.
+- Email confirmation, password reset, and production redirect configuration still require a real deployed-domain test.
+- Supabase Security Advisor still reports 41 callable `SECURITY DEFINER` functions for authenticated users. These include intended RPCs and authorization helpers; each function still needs an individual privilege/authorization review.
+- Supabase Auth leaked-password protection remains disabled and should be enabled in the project Auth settings.
+- Performance Advisor still reports RLS initplan warnings, unused/duplicate indexes, unindexed foreign keys and a multiple-permissive-policy notice. These need a measured review before adding indexes or changing policies.
 
 ## Branch and review
 
-Integration work is isolated on `feat/supabase-integration`. The draft pull request targets `main`; it has not been merged and production deployment has not been performed.
+Integration work is isolated on `feat/supabase-integration`. The draft pull request targets `main`. It has not been merged; production promotion is intentionally held until multi-role browser tests and the remaining security review pass.
