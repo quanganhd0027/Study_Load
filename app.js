@@ -152,7 +152,7 @@ async function loadStudyLoadDomain(sb, profile, authUser, restored){
   const members=projectMembers.filter(m=>m.project_id===p.id);
   const pTasks=projectTasks.filter(t=>t.project_id===p.id);
   const memberIds=members.map(m=>m.user_id);
-  const teacherIds=[p.created_by];
+  const teacherIds=[...new Set([p.created_by,...(classRows.find(c=>c.id===p.class_id)?.homeroomTeacherIds||[])])];
   for(const id of [...memberIds,...teacherIds])if(!users.has(id))users.set(id,{id,name:'Thành viên',role:'student',classIds:[]});
   const groups=teamRows.filter(g=>g.class_id===p.class_id).map(g=>{const leader=officerRows.find(o=>o.team_id===g.id);return {id:g.id,name:g.name,memberIds:g.members.map(m=>m.student_id),leaderId:leader?.user_id||g.members.find(m=>m.is_team_leader)?.student_id||null,leaderRoleId:leader?.id||null,remote:true}});
   const evidence=dbEvidence.filter(e=>e.project_id===p.id).map(e=>({id:e.id,groupId:e.group_id,title:e.title,text:e.description,url:e.external_url,submittedBy:e.submitted_by,contributors:e.contributors||[],status:e.status==='approved'?'Đã xác nhận':e.status==='needs_revision'?'Cần sửa':'Chờ xác minh',createdAt:e.created_at,reviewedBy:e.reviewed_by,reviewedAt:e.reviewed_at,remote:true}));
