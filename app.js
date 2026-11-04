@@ -69,9 +69,37 @@ function showAuth(mode='login',message=''){
  document.querySelector('.app').classList.add('hidden');
  const root=$('#authRoot');root.classList.remove('hidden');
  const register=mode==='register';
- root.innerHTML=`<div class="auth-shell"><section class="auth-brand"><div class="auth-logo">✦ Study<span>Load</span></div><p class="auth-kicker">HỌC TẬP CÓ KẾ HOẠCH</p><h1>Học đúng việc.<br>Đúng thời điểm.</h1><p>Theo dõi nhiệm vụ, sắp xếp thời gian và cùng giáo viên tiến bộ mỗi ngày.</p><div class="auth-decoration"><span>✓</span><span>◷</span><span>↗</span></div></section><section class="auth-panel"><div class="auth-card"><div class="auth-tabs"><button type="button" data-auth-mode="login" class="${!register?'selected':''}">Đăng nhập</button><button type="button" data-auth-mode="register" class="${register?'selected':''}">Đăng kí</button></div><h2>${register?'Tạo tài khoản mới':'Chào mừng bạn quay lại'}</h2><p class="muted">${register?'Tạo tài khoản StudyLoad an toàn bằng Supabase Auth.':'Đăng nhập bằng địa chỉ email và mật khẩu.'}</p>${message?`<div class="notice ${message.startsWith('Lỗi')?'red':''}">${esc(message)}</div>`:''}<form id="authForm">${register?`<label for="authName">Tên hiển thị *</label><input id="authName" name="name" required maxlength="60" autocomplete="name" placeholder="Tên bạn muốn hiển thị"><label for="authCode">Mã học sinh (nếu có)</label><input id="authCode" name="studentCode" maxlength="40" placeholder="Ví dụ: HS1024"><label for="authClass">Lớp (nếu có)</label><input id="authClass" name="className" maxlength="40" placeholder="Ví dụ: 10A1"><label for="authEmail">Email *</label><input id="authEmail" name="email" type="email" required autocomplete="email" placeholder="ban@example.com">`:`<label for="authLogin">Email</label><input id="authLogin" name="login" type="email" required autocomplete="username" placeholder="ban@example.com">`}<label for="authPassword">Mật khẩu *</label><input id="authPassword" name="password" type="password" required minlength="8" autocomplete="${register?'new-password':'current-password'}" placeholder="Ít nhất 8 ký tự">${register?'<p class="auth-hint">Tài khoản mới mặc định là học sinh. Quyền giáo viên cần được quản trị viên phê duyệt.</p>':''}<button class="auth-submit" type="submit">${register?'Tạo tài khoản':'Đăng nhập'}</button></form><p class="auth-legal">Tài khoản và phiên đăng nhập được quản lý bởi Supabase Auth; dữ liệu được đồng bộ lên cơ sở dữ liệu theo quyền truy cập.</p></div></section></div>`;
+ root.innerHTML=`<div class="auth-shell"><section class="auth-brand"><div class="auth-logo">✦ Study<span>Load</span></div><p class="auth-kicker">HỌC TẬP CÓ KẾ HOẠCH</p><h1>Học đúng việc.<br>Đúng thời điểm.</h1><p>Theo dõi nhiệm vụ, sắp xếp thời gian và cùng giáo viên tiến bộ mỗi ngày.</p><div class="auth-decoration"><span>✓</span><span>◷</span><span>↗</span></div></section><section class="auth-panel"><div class="auth-card"><div class="auth-tabs"><button type="button" data-auth-mode="login" class="${!register?'selected':''}">Đăng nhập</button><button type="button" data-auth-mode="register" class="${register?'selected':''}">Đăng kí</button></div><h2>${register?'Tạo tài khoản mới':'Chào mừng bạn quay lại'}</h2><p class="muted">${register?'Tạo tài khoản StudyLoad an toàn bằng Supabase Auth.':'Đăng nhập bằng địa chỉ email và mật khẩu.'}</p>${message?`<div class="notice ${message.startsWith('Lỗi')?'red':''}">${esc(message)}</div>`:''}<form id="authForm">${register?`<label for="authName">Tên hiển thị *</label><input id="authName" name="name" required maxlength="60" autocomplete="name" placeholder="Tên bạn muốn hiển thị"><label for="authCode">Mã học sinh (nếu có)</label><input id="authCode" name="studentCode" maxlength="40" placeholder="Ví dụ: HS1024"><label for="authClass">Lớp (nếu có)</label><input id="authClass" name="className" maxlength="40" placeholder="Ví dụ: 10A1"><label for="authEmail">Email *</label><input id="authEmail" name="email" type="email" required autocomplete="email" placeholder="ban@example.com">`:`<label for="authLogin">Email</label><input id="authLogin" name="login" type="email" required autocomplete="username" placeholder="ban@example.com">`}<label for="authPassword">Mật khẩu *</label><input id="authPassword" name="password" type="password" required minlength="8" autocomplete="${register?'new-password':'current-password'}" placeholder="Ít nhất 8 ký tự">${register?'<p class="auth-hint">Tài khoản mới mặc định là học sinh. Quyền giáo viên cần được quản trị viên phê duyệt.</p>':''}<button class="auth-submit" type="submit">${register?'Tạo tài khoản':'Đăng nhập'}</button></form>${!register?'<button type="button" class="secondary" id="forgotPassword">Quên mật khẩu?</button>':''}<p class="auth-legal">Tài khoản và phiên đăng nhập được quản lý bởi Supabase Auth; dữ liệu được đồng bộ lên cơ sở dữ liệu theo quyền truy cập.</p></div></section></div>`;
  root.querySelectorAll('[data-auth-mode]').forEach(b=>b.onclick=()=>showAuth(b.dataset.authMode));
- $('#authForm').onsubmit=register?registerAccount:loginAccount;
+ $('#authForm').onsubmit=register?registerAccount:loginAccount; $('#forgotPassword')?.addEventListener('click',requestPasswordReset);
+}
+function showPasswordReset(message=''){
+ document.querySelector('.app').classList.add('hidden');
+ const root=$('#authRoot');root.classList.remove('hidden');
+ root.innerHTML='<div class="auth-shell"><section class="auth-brand"><div class="auth-logo">✦ Study<span>Load</span></div><p class="auth-kicker">KHÔI PHỤC TÀI KHOẢN</p><h1>Đặt lại mật khẩu.</h1><p>Chọn một mật khẩu mới để tiếp tục sử dụng StudyLoad.</p></section><section class="auth-panel"><div class="auth-card"><h2>Mật khẩu mới</h2><p class="muted">Mật khẩu phải có ít nhất 8 ký tự.</p>'+ (message?'<div class="notice '+(message.startsWith('Lỗi')?'red':'')+'">'+esc(message)+'</div>':'') +'<form id="passwordResetForm"><label for="newPassword">Mật khẩu mới *</label><input id="newPassword" name="password" type="password" minlength="8" required autocomplete="new-password" placeholder="Ít nhất 8 ký tự"><label for="confirmPassword">Nhập lại mật khẩu *</label><input id="confirmPassword" name="confirm" type="password" minlength="8" required autocomplete="new-password" placeholder="Nhập lại mật khẩu"><button class="auth-submit" type="submit">Cập nhật mật khẩu</button></form></div></section></div>';
+ $('#passwordResetForm').onsubmit=updatePassword;
+}
+async function requestPasswordReset(){
+ const email=window.prompt('Nhập email tài khoản StudyLoad:');
+ if(email===null)return;
+ const value=String(email).trim().toLowerCase();
+ if(!value){showAuth('login','Lỗi: Vui lòng nhập email.');return}
+ const redirectTo=window.location.origin+window.location.pathname;
+ const {error}=await window.studyloadSupabase.auth.resetPasswordForEmail(value,{redirectTo});
+ if(error){showAuth('login','Lỗi: '+error.message);return}
+ showAuth('login','Đã gửi email đặt lại mật khẩu. Hãy mở liên kết trong email để tạo mật khẩu mới.');
+}
+async function updatePassword(e){
+ e.preventDefault();
+ const f=new FormData(e.currentTarget),password=String(f.get('password')||''),confirm=String(f.get('confirm')||'');
+ if(password.length<8){showPasswordReset('Lỗi: Mật khẩu phải có ít nhất 8 ký tự.');return}
+ if(password!==confirm){showPasswordReset('Lỗi: Hai mật khẩu không khớp.');return}
+ const {error}=await window.studyloadSupabase.auth.updateUser({password});
+ if(error){showPasswordReset('Lỗi: '+error.message);return}
+ history.replaceState(null,'',window.location.pathname+window.location.search);
+ const {data:userData,error:userError}=await window.studyloadSupabase.auth.getUser();
+ if(userError||!userData.user){showAuth('login','Đã đổi mật khẩu. Hãy đăng nhập lại.');return}
+ await openAppForAccount(userData.user);
 }
 function usernameFrom(name,email){
  const base=(String(name||email.split('@')[0]).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9_]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'')||'student').slice(0,22);
@@ -685,11 +713,14 @@ async function bootAuth(){
  if(!window.studyloadSupabase){showAuth('login','Lỗi: Chưa khởi tạo được kết nối Supabase.');return}
  const {data,error}=await window.studyloadSupabase.auth.getSession();
  if(error){showAuth('login','Lỗi: '+error.message);return}
+ const recovery=window.location.hash.includes('type=recovery');
+ if(recovery&&data.session?.user){showPasswordReset();return}
  if(data.session?.user){await openAppForAccount(data.session.user);return}
  showAuth('login');
 }
 window.studyloadSupabase.auth.onAuthStateChange((event,session)=>{
  if(event==='SIGNED_OUT'){window.studyloadSessionUserId=null}
+ if(event==='PASSWORD_RECOVERY'&&session?.user)showPasswordReset();
 });
 bootAuth();
 })();
