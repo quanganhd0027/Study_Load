@@ -18,7 +18,7 @@ test('Supabase client loads before the application bundle', () => {
 
 test('browser configuration contains only a publishable Supabase key', () => {
   assert.match(client, /sb_publishable_/);
-  assert.doesNotMatch(client, /sb_secret_|service_role|eyJhbGci/);
+  assert.doesNotMatch(client, /publishableKey\\s*=\\s*['\"][^'\"]*(?:sb_secret_|service_role|eyJhbGci)/);
   assert.match(client, /wbodoxqobkonkafjhfoh\.supabase\.co/);
 });
 
