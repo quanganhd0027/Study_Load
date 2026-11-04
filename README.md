@@ -56,6 +56,16 @@ Legacy browser-local demo data and sample accounts are not automatically migrate
 - Test registration, email confirmation, role boundaries, class membership, assignment progress, project membership and evidence review with separate student, teacher and admin accounts.
 - Configure production Auth redirect URLs and verify the deployed domain.
 
+## Database migrations added in this integration
+
+- `add_user_app_state`
+- `fix_project_task_initial_status`
+- `add_project_evidence_and_resources`
+- `restrict_project_evidence_review`
+- `restrict_user_app_state_privileges`
+- `restrict_trigger_function_execution`
+- `align_project_task_status_and_team_leader_access`
+
 ## Branch and review
 
 Integration work is isolated on `feat/supabase-integration`. The draft pull request targets `main`; it has not been merged and production deployment has not been performed.
