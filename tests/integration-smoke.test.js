@@ -62,6 +62,6 @@ test('project and admin workflows are present', () => {
 test('all applied Supabase migrations are tracked in the repository', () => {
   const dir = path.join(root, 'supabase', 'migrations');
   const files = fs.readdirSync(dir).filter(x => x.endsWith('.sql'));
-  assert.equal(files.length, 16);
+  assert.equal(files.length, 17);
   assert.ok(files.every(x => /^\d{14}_[a-z0-9_]+\.sql$/.test(x)));
 });
