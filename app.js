@@ -392,7 +392,7 @@ async function renderAdminUsers(){
 }
 function editAdminProfile(id){
  const u=state.users.find(x=>x.id===id);if(!u)return;
- modal('Sửa hồ sơ người dùng','<form id="adminProfileForm"><label>Tên hiển thị *</label><input name="name" required value="'+esc(u.name)+'"><label>Username</label><input name="username" required minlength="3" maxlength="30" pattern="[a-z0-9_]+" value="'+esc(u.username||'')+'"><label>Giao diện</label><select name="theme"><option value="system">Theo hệ thống</option><option value="light">Sáng</option><option value="dark">Tối</option></select></form>');
+ modal('Sửa hồ sơ người dùng','<form id="adminProfileForm"><label>Tên hiển thị *</label><input name="name" required value="'+esc(u.name)+'"><label>Username</label><input name="username" required minlength="3" maxlength="30" pattern="[a-z0-9_]+" value="'+esc(u.username||'')+'"><label>Giao diện</label><select name="theme"><option value="system" ${u.theme==='system'?'selected':''}>Theo hệ thống</option><option value="light" ${u.theme==='light'?'selected':''}>Sáng</option><option value="dark" ${u.theme==='dark'?'selected':''}>Tối</option></select></form>');
  $('#modalSubmit').onclick=async()=>{const f=$('#adminProfileForm');if(!f.reportValidity())return;const d=new FormData(f),r=await window.studyloadSupabase.rpc('admin_update_user_profile',{target_user_id:id,new_username:d.get('username'),new_display_name:d.get('name'),new_theme:d.get('theme')});if(r.error){toast(r.error.message);return}closeModal();await reloadStudyLoadDomain();renderSettings();toast('Đã cập nhật hồ sơ.')};
 }
 function renderSubjectManager(){
