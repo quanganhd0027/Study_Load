@@ -62,13 +62,13 @@ The Supabase migrations applied during integration are tracked in `supabase/migr
 
 ## Known limitations before production sign-off
 
-- No full browser end-to-end test has yet been completed with separate student, teacher, and administrator accounts. CI currently checks JavaScript syntax and frontend wiring, not every workflow or RLS edge case.
+- No full browser end-to-end test has yet been completed with separate student, teacher, and administrator accounts. CI checks JavaScript syntax, frontend wiring and static integration markers; it does not exercise every workflow or RLS edge case.
 - Existing browser-local demo/sample data is not automatically migrated into relational Supabase records.
 - Notifications are stored in the cloud inbox, but there is no push delivery while the browser is closed.
 - Email confirmation, password reset, and production redirect configuration still require a real deployed-domain test.
 - Supabase Security Advisor still reports 41 callable `SECURITY DEFINER` functions for authenticated users. These include intended RPCs and authorization helpers; each function still needs an individual privilege/authorization review.
 - Supabase Auth leaked-password protection remains disabled and should be enabled in the project Auth settings.
-- Performance Advisor still reports RLS initplan warnings, unused/duplicate indexes, unindexed foreign keys and a multiple-permissive-policy notice. These need a measured review before adding indexes or changing policies.
+- Performance Advisor still reports 49 RLS initplan notices, 27 unindexed foreign keys and 45 unused indexes. Five duplicate indexes and the duplicate duty UPDATE policy were removed; remaining index changes require workload measurements.
 
 ## Branch and review
 
