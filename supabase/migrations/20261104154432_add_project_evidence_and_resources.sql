@@ -37,7 +37,7 @@ GRANT SELECT,INSERT,UPDATE,DELETE ON public.project_resources TO authenticated;
 REVOKE ALL ON public.project_resources FROM anon,PUBLIC;
 CREATE POLICY project_resources_select_relevant ON public.project_resources FOR SELECT TO authenticated USING(
  public.is_active_user() AND (owner_id=auth.uid() OR EXISTS(SELECT 1 FROM public.projects p WHERE p.id=project_resources.project_id AND
- (public.is_admin() OR p.created_by=auth.uid() OR (p.class_id IS NOT NULL AND (public.is_class_member(p.class_id) OR public.is_class_homeroom_teacher(p.class_id))) OR (p.team_id IS NOT NULL AND (public.is_team_member(p.team_id) OR public.is_team_leader(p.team_id)))))
+ (public.is_admin() OR p.created_by=auth.uid() OR (p.class_id IS NOT NULL AND (public.is_class_member(p.class_id) OR public.is_class_homeroom_teacher(p.class_id))) OR (p.team_id IS NOT NULL AND (public.is_team_member(p.team_id) OR public.is_team_leader(p.team_id))))))
 );
 CREATE POLICY project_resources_insert_member ON public.project_resources FOR INSERT TO authenticated WITH CHECK(
  public.is_active_user() AND owner_id=auth.uid() AND EXISTS(SELECT 1 FROM public.project_members pm WHERE pm.project_id=project_resources.project_id AND pm.user_id=auth.uid())
