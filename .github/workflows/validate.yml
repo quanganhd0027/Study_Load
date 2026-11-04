@@ -22,4 +22,5 @@ jobs:
           grep -q 'supabase-client.js' index.html
           grep -q 'supabase-js@2.118.0' index.html
           ! grep -q '\\n<script' index.html
-          ! grep -q 'service_role' supabase-client.js
+          grep -q "publishableKey='sb_publishable_" supabase-client.js
+          ! grep -Eq 'sb_secret_|eyJhbGci' supabase-client.js
