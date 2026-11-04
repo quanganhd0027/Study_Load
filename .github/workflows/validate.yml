@@ -1,0 +1,25 @@
+name: Validate StudyLoad
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - feat/supabase-integration
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check JavaScript syntax
+        run: |
+          node --check app.js
+          node --check supabase-client.js
+      - name: Check frontend wiring
+        run: |
+          grep -q 'supabase-client.js' index.html
+          grep -q 'supabase-js@2.118.0' index.html
+          ! grep -q '\\n<script' index.html
+          ! grep -q 'service_role' supabase-client.js
