@@ -655,7 +655,7 @@ async function evidenceStatus(pid,eid,status){
  if(error){toast('Không cập nhật được minh chứng: '+error.message);return}
  await reloadStudyLoadDomain();render();projectDetail(pid);
 }
-async async function deleteEvidence(pid,eid){
+async function deleteEvidence(pid,eid){
  const p=state.projects.find(x=>x.id===pid),e=p?.evidence.find(x=>x.id===eid),g=p?.groups.find(g=>g.id===e?.groupId);
  if(!g||!(g.leaderId===current().id||!g.leaderId&&g.memberIds.includes(current().id))){toast('Không có quyền xóa minh chứng này.');return}
  if(!confirm('Xóa minh chứng khỏi dự án?'))return;
