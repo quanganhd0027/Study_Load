@@ -659,18 +659,18 @@ async async function deleteEvidence(pid,eid){
  const p=state.projects.find(x=>x.id===pid),e=p?.evidence.find(x=>x.id===eid),g=p?.groups.find(g=>g.id===e?.groupId);
  if(!g||!(g.leaderId===current().id||!g.leaderId&&g.memberIds.includes(current().id))){toast('Không có quyền xóa minh chứng này.');return}
  if(!confirm('Xóa minh chứng khỏi dự án?'))return;
+ if(e.filePath){const z=await window.studyloadSupabase.storage.from('project-files').remove([e.filePath]);if(z.error){toast('Không xóa được tệp minh chứng: '+z.error.message);return}}
  const {error}=await window.studyloadSupabase.from('project_evidence').delete().eq('id',eid);
  if(error){toast('Không xóa được minh chứng: '+error.message);return}
- if(e.filePath){const z=await window.studyloadSupabase.storage.from('project-files').remove([e.filePath]);if(z.error)console.warn(z.error.message)}
  await reloadStudyLoadDomain();render();projectDetail(pid);
 }
 async function deleteResource(pid,rid){
  const p=state.projects.find(x=>x.id===pid),r=p?.resources.find(x=>x.id===rid);
  if(!r||(!(isTeacher()&&p.teacherIds.includes(current().id))&&r.ownerId!==current().id)){toast('Chỉ người tải lên hoặc giáo viên phụ trách được xóa tài liệu.');return}
  if(!confirm('Xóa tài liệu dự án?'))return;
+ if(r.filePath){const z=await window.studyloadSupabase.storage.from('project-files').remove([r.filePath]);if(z.error){toast('Không xóa được tệp tài liệu: '+z.error.message);return}}
  const {error}=await window.studyloadSupabase.from('project_resources').delete().eq('id',rid);
  if(error){toast('Không xóa được tài liệu: '+error.message);return}
- if(r.filePath){const z=await window.studyloadSupabase.storage.from('project-files').remove([r.filePath]);if(z.error)console.warn(z.error.message)}
  await reloadStudyLoadDomain();render();projectDetail(pid);
 }
 $('#nav').addEventListener('click',e=>{let b=e.target.closest('[data-page]');if(b){page=b.dataset.page;render()}});
