@@ -27,7 +27,26 @@ const emptyState=()=>({version:1,users:[],currentUserId:'',tasks:[],busy:[],clas
 let state;
 try{let raw=localStorage.getItem('studyload_v2');state=raw?JSON.parse(raw):emptyState();if(!state||state.version!==1)state=emptyState()}catch(e){state=emptyState()}
 let page='dashboard', timer={taskId:null,status:'idle',accum:0,startedAt:null,autoPausePrompted:false}, timerInterval=null, calendarMode='week', libraryTab='personal', extraStudyChooser=false, extraPromptDismissedDay=null, extraOverloadNotice='';
-function save(){localStorage.setItem('studyload_v2',JSON.stringify(state))}
+let remoteSaveTimer=null, remoteSaveRevision=0;
+function save(){
+ const userId=state.currentUserId;
+ if(!userId){localStorage.setItem('studyload_v2_guest',JSON.stringify(state));return}
+ const user=current();
+ const payload={...state,users:[user],currentUserId:userId};
+ localStorage.setItem('studyload_v2_'+userId,JSON.stringify(payload));
+ if(!window.studyloadSupabase||window.studyloadSessionUserId!==userId)return;
+ const revision=++remoteSaveRevision;
+ clearTimeout(remoteSaveTimer);
+ remoteSaveTimer=setTimeout(async()=>{
+  try{
+   if(revision!==remoteSaveRevision||window.studyloadSessionUserId!==userId)return;
+   const {error}=await window.studyloadSupabase.from('user_app_state').upsert({
+    user_id:userId,state:payload,updated_at:new Date().toISOString()
+   },{onConflict:'user_id'});
+   if(error)throw error;
+  }catch(error){console.error('StudyLoad sync failed:',error);window.studyloadSyncError=error.message||'Không thể đồng bộ dữ liệu.'}
+ },450);
+}
 function current(){return state.users.find(u=>u.id===state.currentUserId)||state.users[0]||{id:'',name:'',role:'student',classIds:[]}}
 function isStudent(u=current()){return u.role==='student'}
 function isTeacher(u=current()){return u.role==='teacher'||u.role==='admin'}
@@ -37,15 +56,90 @@ const readJson=(key,fallback)=>{try{const v=JSON.parse(localStorage.getItem(key)
 const writeJson=(key,value)=>localStorage.setItem(key,JSON.stringify(value));
 const normalizeName=s=>String(s||'').trim().toLocaleLowerCase('vi');
 async function hashPassword(p){if(!window.crypto?.subtle)return 'demo-'+btoa(unescape(encodeURIComponent(String(p))));const data=new TextEncoder().encode(String(p));const digest=await window.crypto.subtle.digest('SHA-256',data);return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('')}
-function ensureAdminAccount(){let accounts=readJson(ACCOUNTS_KEY,[]);if(!accounts.some(a=>a.email==='quanganhd2011@gmail.com')){accounts.push({id:'admin_quanganhd',name:'Quản trị viên',username:'quanganhd2011@gmail.com',email:'quanganhd2011@gmail.com',passwordHash:'',role:'admin',studentCode:'',className:'',createdAt:iso(now()),mustSetPassword:true});writeJson(ACCOUNTS_KEY,accounts)}return accounts}
-function showAuth(mode='login',message=''){document.querySelector('.app').classList.add('hidden');const root=$('#authRoot');root.classList.remove('hidden');const register=mode==='register';root.innerHTML=`<div class="auth-shell"><section class="auth-brand"><div class="auth-logo">✦ Study<span>Load</span></div><p class="auth-kicker">HỌC TẬP CÓ KẾ HOẠCH</p><h1>Học đúng việc.<br>Đúng thời điểm.</h1><p>Theo dõi nhiệm vụ, sắp xếp thời gian và cùng giáo viên tiến bộ mỗi ngày.</p><div class="auth-decoration"><span>✓</span><span>◷</span><span>↗</span></div></section><section class="auth-panel"><div class="auth-card"><div class="auth-tabs"><button type="button" data-auth-mode="login" class="${!register?'selected':''}">Đăng nhập</button><button type="button" data-auth-mode="register" class="${register?'selected':''}">Đăng kí</button></div><h2>${register?'Tạo tài khoản mới':'Chào mừng bạn quay lại'}</h2><p class="muted">${register?'Điền thông tin để bắt đầu sử dụng StudyLoad.':'Nhập tên tài khoản hoặc email và mật khẩu.'}</p>${message?`<div class="notice ${message.startsWith('Lỗi')?'red':''}">${esc(message)}</div>`:''}<form id="authForm">${register?`<label for="authName">Tên đăng kí *</label><input id="authName" name="name" required maxlength="60" autocomplete="name" placeholder="Tên bạn muốn hiển thị"><label for="authCode">Mã học sinh (nếu có)</label><input id="authCode" name="studentCode" maxlength="40" placeholder="Ví dụ: HS1024"><label for="authClass">Lớp (nếu có)</label><input id="authClass" name="className" maxlength="40" placeholder="Ví dụ: 10A1"><label for="authEmail">Email *</label><input id="authEmail" name="email" type="email" required autocomplete="email" placeholder="ban@example.com">`:`<label for="authLogin">Tên đăng nhập hoặc email</label><input id="authLogin" name="login" required autocomplete="username" placeholder="Tên đăng kí hoặc email">`}<label for="authPassword">Mật khẩu *</label><input id="authPassword" name="password" type="password" required minlength="8" autocomplete="${register?'new-password':'current-password'}" placeholder="Ít nhất 8 ký tự">${register?'<p class="auth-hint">Tài khoản mới mặc định là học sinh. Bạn có thể yêu cầu quyền giáo viên sau khi đăng nhập.</p>':''}<button class="auth-submit" type="submit">${register?'Tạo tài khoản':'Đăng nhập'}</button></form><p class="auth-legal">Bản hiện tại lưu tài khoản trên trình duyệt này. Muốn dùng thật nhiều thiết bị cần kết nối máy chủ và cơ sở dữ liệu.</p></div></section></div>`;root.querySelectorAll('[data-auth-mode]').forEach(b=>b.onclick=()=>showAuth(b.dataset.authMode));$('#authForm').onsubmit=register?registerAccount:loginAccount}
-async function registerAccount(e){e.preventDefault();const f=new FormData(e.currentTarget),name=String(f.get('name')||'').trim(),email=String(f.get('email')||'').trim().toLowerCase(),password=String(f.get('password')||''),studentCode=String(f.get('studentCode')||'').trim(),className=String(f.get('className')||'').trim();if(name.length<2){showAuth('register','Lỗi: Tên đăng kí phải có ít nhất 2 ký tự.');return}if(password.length<8){showAuth('register','Lỗi: Mật khẩu phải có ít nhất 8 ký tự.');return}let accounts=readJson(ACCOUNTS_KEY,[]);if(accounts.some(a=>a.email===email||normalizeName(a.name)===normalizeName(name))){showAuth('register','Lỗi: Email hoặc tên đăng kí đã được sử dụng.');return}accounts.push({id:uid('u'),name,username:name,email,passwordHash:await hashPassword(password),role:'student',studentCode,className,createdAt:iso(now())});writeJson(ACCOUNTS_KEY,accounts);showAuth('login','Tạo tài khoản thành công. Hãy đăng nhập bằng tên vừa đăng kí và mật khẩu.')}
-async function loginAccount(e){e.preventDefault();const f=new FormData(e.currentTarget),login=String(f.get('login')||'').trim(),password=String(f.get('password')||''),accounts=readJson(ACCOUNTS_KEY,[]),a=accounts.find(x=>x.email===login.toLowerCase()||normalizeName(x.name)===normalizeName(login)||normalizeName(x.username)===normalizeName(login));if(!a){showAuth('login','Lỗi: Không tìm thấy tài khoản.');return}if(a.mustSetPassword&&!a.passwordHash){if(password.length<8){showAuth('login','Lần đầu vào quản trị: hãy nhập mật khẩu mới có ít nhất 8 ký tự để kích hoạt tài khoản admin.');return}a.passwordHash=await hashPassword(password);a.mustSetPassword=false;writeJson(ACCOUNTS_KEY,accounts);writeJson(SESSION_KEY,{userId:a.id});openAppForAccount(a);toast('Đã thiết lập mật khẩu quản trị. Hãy giữ mật khẩu an toàn.');return}if(await hashPassword(password)!==a.passwordHash){showAuth('login','Lỗi: Tên đăng nhập hoặc mật khẩu không đúng.');return}writeJson(SESSION_KEY,{userId:a.id});openAppForAccount(a)}
-function openAppForAccount(a){const accounts=readJson(ACCOUNTS_KEY,[]);state.users=accounts.map(x=>({id:x.id,name:x.name,role:x.role==='admin'?'admin':x.role==='teacher'?'teacher':'student',subject:x.subject||'',classIds:[],studentCode:x.studentCode||'',className:x.className||'',email:x.email}));state.currentUserId=a.id;save();$('#authRoot').classList.add('hidden');document.querySelector('.app').classList.remove('hidden');document.querySelector('.side-note').textContent='Tài khoản: '+a.name+' · '+(a.role==='admin'?'Quản trị viên':a.role==='teacher'?'Giáo viên':'Học sinh');render();init();if(isAdmin())renderAdminRequests();}
-function logout(){localStorage.removeItem(SESSION_KEY);state.currentUserId='';save();showAuth('login')}
-function requestTeacherRole(){const u=current();if(isAdmin()||u.role==='teacher'){toast('Tài khoản của bạn đã có quyền giáo viên hoặc quản trị viên.');return}const reqs=readJson(REQUESTS_KEY,[]);if(reqs.some(r=>r.userId===u.id&&r.status==='pending')){toast('Bạn đã gửi yêu cầu. Vui lòng chờ quản trị viên duyệt.');return}reqs.push({id:uid('req'),userId:u.id,name:u.name,email:u.email,studentCode:u.studentCode||'',className:u.className||'',createdAt:iso(now()),status:'pending'});writeJson(REQUESTS_KEY,reqs);toast('Đã gửi yêu cầu quyền giáo viên tới quản trị viên.');}
-function renderAdminRequests(){if(!isAdmin())return;const root=$('#adminRequests');if(!root)return;const reqs=readJson(REQUESTS_KEY,[]);root.innerHTML=`<div class="card span-12"><h2>Yêu cầu quyền giáo viên</h2>${reqs.filter(r=>r.status==='pending').map(r=>`<div class="item"><div><div class="item-title">${esc(r.name)} <span class="badge amber">Chờ duyệt</span></div><div class="item-meta">${esc(r.email)} · Mã HS: ${esc(r.studentCode||'—')} · Lớp: ${esc(r.className||'—')} · ${fmtDate(r.createdAt)}</div></div><div class="actions"><button class="small" data-approve-teacher="${r.id}">Phê duyệt</button><button class="small danger" data-reject-teacher="${r.id}">Từ chối</button></div></div>`).join('')||'<div class="empty">Không có yêu cầu đang chờ.</div>'}<p class="footer-note">Các yêu cầu trong bản demo chỉ được lưu trên trình duyệt này.</p></div>`;root.querySelectorAll('[data-approve-teacher]').forEach(b=>b.onclick=()=>decideTeacherRequest(b.dataset.approveTeacher,true));root.querySelectorAll('[data-reject-teacher]').forEach(b=>b.onclick=()=>decideTeacherRequest(b.dataset.rejectTeacher,false))}
-function decideTeacherRequest(id,approve){if(!isAdmin())return;let reqs=readJson(REQUESTS_KEY,[]),r=reqs.find(x=>x.id===id);if(!r||r.status!=='pending')return;r.status=approve?'approved':'rejected';r.reviewedAt=iso(now());let accounts=readJson(ACCOUNTS_KEY,[]),a=accounts.find(x=>x.id===r.userId);if(approve&&a)a.role='teacher';writeJson(ACCOUNTS_KEY,accounts);writeJson(REQUESTS_KEY,reqs);state.users=accounts.map(x=>({id:x.id,name:x.name,role:x.role==='admin'?'admin':x.role==='teacher'?'teacher':'student',subject:x.subject||'',classIds:[],studentCode:x.studentCode||'',className:x.className||'',email:x.email}));save();render();renderAdminRequests();toast(approve?'Đã phê duyệt quyền giáo viên.':'Đã từ chối yêu cầu.')}
+function showAuth(mode='login',message=''){
+ document.querySelector('.app').classList.add('hidden');
+ const root=$('#authRoot');root.classList.remove('hidden');
+ const register=mode==='register';
+ root.innerHTML=`<div class="auth-shell"><section class="auth-brand"><div class="auth-logo">✦ Study<span>Load</span></div><p class="auth-kicker">HỌC TẬP CÓ KẾ HOẠCH</p><h1>Học đúng việc.<br>Đúng thời điểm.</h1><p>Theo dõi nhiệm vụ, sắp xếp thời gian và cùng giáo viên tiến bộ mỗi ngày.</p><div class="auth-decoration"><span>✓</span><span>◷</span><span>↗</span></div></section><section class="auth-panel"><div class="auth-card"><div class="auth-tabs"><button type="button" data-auth-mode="login" class="${!register?'selected':''}">Đăng nhập</button><button type="button" data-auth-mode="register" class="${register?'selected':''}">Đăng kí</button></div><h2>${register?'Tạo tài khoản mới':'Chào mừng bạn quay lại'}</h2><p class="muted">${register?'Tạo tài khoản StudyLoad an toàn bằng Supabase Auth.':'Đăng nhập bằng địa chỉ email và mật khẩu.'}</p>${message?`<div class="notice ${message.startsWith('Lỗi')?'red':''}">${esc(message)}</div>`:''}<form id="authForm">${register?`<label for="authName">Tên hiển thị *</label><input id="authName" name="name" required maxlength="60" autocomplete="name" placeholder="Tên bạn muốn hiển thị"><label for="authCode">Mã học sinh (nếu có)</label><input id="authCode" name="studentCode" maxlength="40" placeholder="Ví dụ: HS1024"><label for="authClass">Lớp (nếu có)</label><input id="authClass" name="className" maxlength="40" placeholder="Ví dụ: 10A1"><label for="authEmail">Email *</label><input id="authEmail" name="email" type="email" required autocomplete="email" placeholder="ban@example.com">`:`<label for="authLogin">Email</label><input id="authLogin" name="login" type="email" required autocomplete="username" placeholder="ban@example.com">`}<label for="authPassword">Mật khẩu *</label><input id="authPassword" name="password" type="password" required minlength="8" autocomplete="${register?'new-password':'current-password'}" placeholder="Ít nhất 8 ký tự">${register?'<p class="auth-hint">Tài khoản mới mặc định là học sinh. Quyền giáo viên cần được quản trị viên phê duyệt.</p>':''}<button class="auth-submit" type="submit">${register?'Tạo tài khoản':'Đăng nhập'}</button></form><p class="auth-legal">Tài khoản và phiên đăng nhập được quản lý bởi Supabase Auth; dữ liệu được đồng bộ lên cơ sở dữ liệu theo quyền truy cập.</p></div></section></div>`;
+ root.querySelectorAll('[data-auth-mode]').forEach(b=>b.onclick=()=>showAuth(b.dataset.authMode));
+ $('#authForm').onsubmit=register?registerAccount:loginAccount;
+}
+function usernameFrom(name,email){
+ const base=(String(name||email.split('@')[0]).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9_]/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'')||'student').slice(0,22);
+ return (base+'_'+Math.random().toString(36).slice(2,7)).slice(0,30);
+}
+async function registerAccount(e){
+ e.preventDefault();
+ const f=new FormData(e.currentTarget),name=String(f.get('name')||'').trim(),email=String(f.get('email')||'').trim().toLowerCase(),password=String(f.get('password')||''),studentCode=String(f.get('studentCode')||'').trim(),className=String(f.get('className')||'').trim();
+ if(name.length<2){showAuth('register','Lỗi: Tên hiển thị phải có ít nhất 2 ký tự.');return}
+ if(password.length<8){showAuth('register','Lỗi: Mật khẩu phải có ít nhất 8 ký tự.');return}
+ const {data,error}=await window.studyloadSupabase.auth.signUp({email,password,options:{data:{username:usernameFrom(name,email),display_name:name,student_id:studentCode||null,class_name:className||null}}});
+ if(error){showAuth('register','Lỗi: '+error.message);return}
+ if(data.session&&data.user){await openAppForAccount(data.user);return}
+ showAuth('login','Đã tạo tài khoản. Hãy xác nhận email theo hướng dẫn được gửi đến hộp thư, sau đó đăng nhập.');
+}
+async function loginAccount(e){
+ e.preventDefault();
+ const f=new FormData(e.currentTarget),email=String(f.get('login')||'').trim().toLowerCase(),password=String(f.get('password')||'');
+ const {data,error}=await window.studyloadSupabase.auth.signInWithPassword({email,password});
+ if(error){showAuth('login','Lỗi: '+(error.message==='Invalid login credentials'?'Email hoặc mật khẩu không đúng.':error.message));return}
+ await openAppForAccount(data.user);
+}
+async function openAppForAccount(authUser){
+ const sb=window.studyloadSupabase,userId=authUser.id;
+ window.studyloadSessionUserId=userId;
+ const {data:profile,error:profileError}=await sb.from('profiles').select('*').eq('id',userId).single();
+ if(profileError||!profile){console.error(profileError);await sb.auth.signOut();window.studyloadSessionUserId=null;showAuth('login','Lỗi: Không thể tải hồ sơ tài khoản. Hãy thử lại hoặc liên hệ quản trị viên.');return}
+ if(profile.is_banned){await sb.auth.signOut();window.studyloadSessionUserId=null;showAuth('login','Lỗi: Tài khoản hiện không được phép truy cập.');return}
+ const {data:stored,error:stateError}=await sb.from('user_app_state').select('state').eq('user_id',userId).maybeSingle();
+ if(stateError){console.error(stateError);showAuth('login','Lỗi: Không thể tải dữ liệu đồng bộ: '+stateError.message);return}
+ const appUser={id:userId,name:profile.display_name||authUser.email||profile.username,role:profile.role||'student',subject:'',classIds:[],studentCode:profile.student_id||'',className:profile.class_name||'',email:authUser.email,username:profile.username};
+ const restored=stored?.state&&typeof stored.state==='object'?stored.state:emptyState();
+ state={...emptyState(),...restored,users:[appUser],currentUserId:userId};
+ state.tasks=(state.tasks||[]).filter(t=>t.ownerId===userId);
+ state.busy=(state.busy||[]).filter(b=>b.ownerId===userId);
+ state.notifications=(state.notifications||[]).filter(n=>n.userId===userId);
+ state.libraries=state.libraries&&typeof state.libraries==='object'?state.libraries:{};
+ window.studyloadSyncError=null;
+ localStorage.setItem('studyload_v2_'+userId,JSON.stringify(state));
+ $('#authRoot').classList.add('hidden');document.querySelector('.app').classList.remove('hidden');
+ document.querySelector('.side-note').textContent='Tài khoản: '+appUser.name+' · '+(appUser.role==='admin'?'Quản trị viên':appUser.role==='teacher'?'Giáo viên':'Học sinh');
+ render();init();if(isAdmin())renderAdminRequests();
+ if(!stored)save();
+}
+async function logout(){
+ clearTimeout(remoteSaveTimer);
+ await window.studyloadSupabase.auth.signOut();
+ window.studyloadSessionUserId=null;state.currentUserId='';showAuth('login');
+}
+async function requestTeacherRole(){
+ const u=current();if(isAdmin()||u.role==='teacher'){toast('Tài khoản của bạn đã có quyền giáo viên hoặc quản trị viên.');return}
+ const sb=window.studyloadSupabase;
+ const {data:pending,error:checkError}=await sb.from('teacher_requests').select('id').eq('user_id',u.id).eq('status','pending').limit(1);
+ if(checkError){toast('Không kiểm tra được yêu cầu: '+checkError.message);return}
+ if(pending?.length){toast('Bạn đã gửi yêu cầu. Vui lòng chờ quản trị viên duyệt.');return}
+ const message=[u.name,u.email,u.studentCode||'',u.className||''].join(' | ');
+ const {error}=await sb.from('teacher_requests').insert({user_id:u.id,message,status:'pending'});
+ if(error){toast('Không gửi được yêu cầu: '+error.message);return}
+ toast('Đã gửi yêu cầu quyền giáo viên. Quản trị viên sẽ xem xét.');
+}
+async function renderAdminRequests(){
+ if(!isAdmin())return;
+ const root=$('#adminRequests');if(!root)return;
+ const {data:reqs,error}=await window.studyloadSupabase.from('teacher_requests').select('id,user_id,message,status,created_at').eq('status','pending').order('created_at',{ascending:true});
+ if(error){root.innerHTML='<div class="card span-12"><h2>Yêu cầu quyền giáo viên</h2><div class="notice red">'+esc(error.message)+'</div></div>';return}
+ root.innerHTML=`<div class="card span-12"><h2>Yêu cầu quyền giáo viên</h2>${(reqs||[]).map(r=>`<div class="item"><div><div class="item-title">${esc(r.message||r.user_id)} <span class="badge amber">Chờ duyệt</span></div><div class="item-meta">${fmtDate(r.created_at)}</div></div><div class="actions"><button class="small" data-approve-teacher="${r.id}">Phê duyệt</button><button class="small danger" data-reject-teacher="${r.id}">Từ chối</button></div></div>`).join('')||'<div class="empty">Không có yêu cầu đang chờ.</div>'}<p class="footer-note">Yêu cầu được lưu trong Supabase và chỉ quản trị viên có quyền duyệt.</p></div>`;
+ root.querySelectorAll('[data-approve-teacher]').forEach(b=>b.onclick=()=>decideTeacherRequest(b.dataset.approveTeacher,true));
+ root.querySelectorAll('[data-reject-teacher]').forEach(b=>b.onclick=()=>decideTeacherRequest(b.dataset.rejectTeacher,false));
+}
+async function decideTeacherRequest(id,approve){
+ if(!isAdmin())return;
+ const {error}=await window.studyloadSupabase.rpc('admin_review_teacher_request',{target_request_id:id,decision:approve?'approved':'rejected',note:null});
+ if(error){toast('Không cập nhật được yêu cầu: '+error.message);return}
+ const {data:profile}=await window.studyloadSupabase.from('profiles').select('*').eq('id',current().id).single();
+ if(profile){current().role=profile.role||current().role;render()}
+ await renderAdminRequests();toast(approve?'Đã phê duyệt quyền giáo viên.':'Đã từ chối yêu cầu.');
+}
 function adminOnlyAction(action){if(!isAdmin()){toast('Chỉ tài khoản quản trị viên mới dùng được chức năng này.');return false}return true}
 function toast(s){$('#toastRoot').innerHTML=`<div class="toast">${esc(s)}</div>`;setTimeout(()=>$('#toastRoot').innerHTML='',2800)}
 function taskStatus(t){if(t.status==='done')return 'Hoàn thành';if(new Date(t.dueAt)<now())return 'Chưa hoàn thành – Quá hạn';return t.status==='doing'?'Đang làm':'Chưa làm'}
@@ -206,6 +300,15 @@ $('#profileButton').addEventListener('click',()=>{if(isAdmin()||isTeacher()){toa
 $('#modalRoot').addEventListener('click',e=>{let a=e.target.closest('[data-action]');if(a)handleAction(a.dataset.action,a.dataset.id,a)});
 let appInitialized=false;function init(){if(appInitialized)return;appInitialized=true;state.users.forEach(u=>{u.classIds=u.classIds||[]});state.tasks.forEach(t=>{t.sessions=t.sessions||[];t.history=t.history||[];t.actualMinutes=Number(t.actualMinutes)||0;t.remainingWorkMinutes=Number(t.remainingWorkMinutes??t.estimatedMinutes)||0});schedule(current().id);render();setInterval(()=>{if(document.visibilityState==='visible'&&!$('#authRoot').classList.contains('hidden'))return;if(document.visibilityState==='visible')checkRemindersQuiet()},60000)}
 function checkRemindersQuiet(){let u=current();for(let t of state.tasks.filter(t=>t.ownerId===u.id&&t.status!=='done')){let due=new Date(t.dueAt),hours=(due-now())/3600000;if(hours<0)continue;for(let h of state.reminderSettings.hours){if(hours<=h&&hours>h-1/60){if(state.reminderSettings.studyOnly&&!isFreeNow(u.id))continue;let key=`reminder_${t.id}_${h}_${t.dueAt}`;if(!state.notifications.some(n=>n.key===key)){notifyUser(u.id,`Nhắc hạn còn ${h} giờ`,`${t.title} · hạn ${fmtDate(t.dueAt)}`,'reminder',t.id)}}}}}
-function bootAuth(){let accounts=ensureAdminAccount();const session=readJson(SESSION_KEY,null);if(session){let a=accounts.find(x=>x.id===session.userId);if(a&&a.passwordHash){openAppForAccount(a);return}}showAuth('login')}
+async function bootAuth(){
+ if(!window.studyloadSupabase){showAuth('login','Lỗi: Chưa khởi tạo được kết nối Supabase.');return}
+ const {data,error}=await window.studyloadSupabase.auth.getSession();
+ if(error){showAuth('login','Lỗi: '+error.message);return}
+ if(data.session?.user){await openAppForAccount(data.session.user);return}
+ showAuth('login');
+}
+window.studyloadSupabase.auth.onAuthStateChange((event,session)=>{
+ if(event==='SIGNED_OUT'){window.studyloadSessionUserId=null}
+});
 bootAuth();
 })();
