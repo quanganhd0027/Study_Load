@@ -58,6 +58,7 @@ The Supabase migrations applied during integration are tracked in `supabase/migr
 - `20261104160555_consolidate_duty_schedule_update_policy`
 - `20261104160632_optimize_notification_policy_auth_uid`
 - `20261104161113_drop_duplicate_indexes`
+- `20261104161215_authorize_project_manager_file_cleanup`
 
 ## Known limitations before production sign-off
 
