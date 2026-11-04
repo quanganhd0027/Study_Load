@@ -1,0 +1,4 @@
+DROP POLICY IF EXISTS project_evidence_update_reviewer ON public.project_evidence;
+CREATE POLICY project_evidence_update_reviewer ON public.project_evidence FOR UPDATE TO authenticated
+USING(public.is_active_user() AND (public.is_admin() OR EXISTS(SELECT 1 FROM public.projects p WHERE p.id=project_evidence.project_id AND (p.created_by=auth.uid() OR (p.class_id IS NOT NULL AND public.is_class_homeroom_teacher(p.class_id))))))
+WITH CHECK(public.is_active_user() AND (public.is_admin() OR EXISTS(SELECT 1 FROM public.projects p WHERE p.id=project_evidence.project_id AND (p.created_by=auth.uid() OR (p.class_id IS NOT NULL AND public.is_class_homeroom_teacher(p.class_id))))));

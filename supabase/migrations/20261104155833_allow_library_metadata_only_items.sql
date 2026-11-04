@@ -1,0 +1,1 @@
+ALTER TABLE public.library_items DROP CONSTRAINT IF EXISTS library_items_check;
