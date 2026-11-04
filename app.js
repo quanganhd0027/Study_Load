@@ -140,7 +140,7 @@ async function loadStudyLoadDomain(sb, profile, authUser, restored){
  }
  if(isAdminUser){
   const all=await safe(sb.rpc('admin_list_users',{search_text:null,page_size:500,page_offset:0}),'admin users');
-  for(const x of all){const u=users.get(x.user_id)||{id:x.user_id,classIds:[]};Object.assign(u,{name:x.display_name||x.username||x.email||'Người dùng',role:x.role||'student',email:x.email,username:x.username});users.set(x.user_id,u)}
+  for(const x of all){const u=users.get(x.user_id)||{id:x.user_id,classIds:[]};Object.assign(u,{name:x.display_name||x.username||x.email||'Người dùng',role:x.role||'student',email:x.email,username:x.username,is_banned:x.is_banned,theme:x.theme});users.set(x.user_id,u)}
  }
  const assignmentById=new Map(dbAssignments.map(x=>[x.id,x]));
  const sessionsByProgress=new Map();
